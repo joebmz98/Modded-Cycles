@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cycles Arranger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: hardware-panel top bar, pattern grid on the left, timeline in the middle, inspector on the right.
+   Single dark theme by choice: it is a studio tool used next to a dark grey machine. */
+:root{
+  --bg:#17191c;          /* panel */
+  --surface:#202327;     /* raised */
+  --well:#121416;        /* recessed */
+  --line:#30343a;
+  --ink:#e6e3dc;
+  --ink-dim:#8d9198;
+  --accent:#f0a33a;      /* amber LED */
+  --accent-ink:#1b1408;
+  --play:#5fd38d;
+  --warn:#ef6b5b;
+  --t1:#e8664f; --t2:#efa542; --t3:#d9d14a; --t4:#5fc78b; --t5:#4fb3e8; --t6:#a98bf0;
+  --font-ui:"IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-num:"IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.35 var(--font-ui);display:flex;flex-direction:column;overflow:hidden}
+button,select,input{font:inherit;color:inherit}
+button{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:5px 10px;cursor:pointer}
+button:hover{border-color:#4a5058}
+button:focus-visible,select:focus-visible,input:focus-visible,.blk:focus-visible,.pcell:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.45;cursor:not-allowed}
+select,input[type=number],input[type=text]{background:var(--well);border:1px solid var(--line);border-radius:4px;padding:4px 6px;min-width:0}
+input[type=number]{font-family:var(--font-num);width:64px}
+label.inl{display:flex;align-items:center;gap:6px;color:var(--ink-dim);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+
+/* top bar */
+header{display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:1px solid var(--line);background:linear-gradient(#1d2024,#191b1e);flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:8px;margin-right:6px}
+.brand b{font-weight:700;letter-spacing:.14em;text-transform:uppercase;font-size:13px}
+.brand input{background:transparent;border:1px solid transparent;font-size:16px;font-weight:600;width:170px}
+.brand input:hover,.brand input:focus{border-color:var(--line);background:var(--well)}
+.transport{display:flex;gap:6px;align-items:center}
+.transport button{width:38px;height:32px;padding:0;display:grid;place-items:center}
+.transport button.on{background:var(--play);border-color:var(--play);color:#0c1a11}
+.lcd{background:#0d0f0c;border:1px solid #2a2f28;border-radius:4px;padding:3px 10px;font-family:var(--font-num);color:var(--accent);display:flex;gap:14px;align-items:center;min-height:32px}
+.lcd small{color:#7a6a4e;font-size:10px;letter-spacing:.08em;margin-right:4px}
+.lcd input{background:transparent;border:none;color:var(--accent);width:56px;padding:0;font-family:var(--font-num);font-size:14px}
+.spacer{flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--ink-dim);white-space:nowrap}
+.pill i{width:8px;height:8px;border-radius:50%;background:#555;display:inline-block}
+.pill.ok i{background:var(--play)} .pill.ok{color:var(--ink)}
+.pill.bad i{background:var(--warn)}
+
+main{flex:1;display:grid;grid-template-columns:232px 1fr 300px;min-height:0}
+aside,section{min-height:0}
+.panel{border-right:1px solid var(--line);overflow:auto;padding:12px}
+.panel h2,.insp h2{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);margin:0 0 8px;font-weight:600}
+.hint{color:var(--ink-dim);font-size:12px}
+
+/* pattern palette */
+.bank{margin-bottom:10px}
+.bank .bl{font-family:var(--font-num);font-size:11px;color:var(--ink-dim);margin-bottom:3px}
+.pgrid{display:grid;grid-template-columns:repeat(8,1fr);gap:3px}
+.pcell{aspect-ratio:1;border-radius:3px;background:var(--well);border:1px solid var(--line);font-family:var(--font-num);font-size:10px;display:grid;place-items:center;cursor:grab;user-select:none;padding:0;color:var(--ink-dim)}
+.pcell.used{color:var(--ink);border-color:#4c525a}
+.pcell.cur{box-shadow:inset 0 0 0 2px var(--accent)}
+
+/* timeline */
+.tl{display:flex;flex-direction:column;min-width:0;min-height:0}
+.tlbar{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tlwrap{flex:1;overflow:auto;position:relative;background:var(--well)}
+.tlgrid{position:relative;display:grid;grid-template-columns:112px auto;min-width:100%}
+.rowh{position:sticky;left:0;z-index:3;background:var(--bg);border-right:1px solid var(--line);border-bottom:1px solid #24272b;padding:0 8px;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-dim);white-space:nowrap;overflow:hidden}
+.rowh .sw{width:8px;height:8px;border-radius:2px;flex:none}
+.rowb{position:relative;border-bottom:1px solid #24272b}
+.r-ruler{height:26px} .r-blocks{height:62px} .r-mute{height:22px} .r-lane{height:46px} .r-tempo{height:22px}
+.rowh.r-ruler{position:sticky;top:0;z-index:5}
+.rowb.r-ruler{position:sticky;top:0;z-index:4;background:var(--bg)}
+.tick{position:absolute;top:0;bottom:0;border-left:1px solid #2b2f34;font-family:var(--font-num);font-size:10px;color:var(--ink-dim);padding:5px 0 0 3px}
+.tick.bar4{border-left-color:#454a52;color:var(--ink)}
+.blk{position:absolute;top:6px;bottom:6px;border-radius:4px;overflow:hidden;cursor:grab;user-select:none;border:1px solid rgba(0,0,0,.4);display:flex;flex-direction:column;justify-content:space-between;padding:4px 6px;color:#14110c}
+.blk .bn{font-family:var(--font-num);font-weight:600;font-size:13px}
+.blk .bl2{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.85}
+.blk .reps{position:absolute;inset:0;pointer-events:none;background-image:repeating-linear-gradient(90deg,transparent 0 calc(var(--rw) - 1px),rgba(0,0,0,.28) calc(var(--rw) - 1px) var(--rw))}
+.blk .grip{position:absolute;right:0;top:0;bottom:0;width:9px;cursor:ew-resize;background:linear-gradient(90deg,transparent,rgba(0,0,0,.25))}
+.blk.sel{outline:2px solid #fff;outline-offset:-1px;z-index:2}
+.blk.insel{box-shadow:inset 0 0 0 2px rgba(255,255,255,.85);filter:saturate(1.15)}
+.blk.inloop:not(.sel)::after{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:var(--accent)}
+.rowb.r-ruler{cursor:col-resize}
+.rowb.r-ruler:hover .loopband{opacity:1!important}
+.loopband.drag{opacity:1!important;background:#fff}
+.blk.devrow{box-shadow:0 0 0 3px var(--play)}
+.insmark{position:absolute;top:2px;bottom:2px;width:3px;background:var(--accent);border-radius:2px;z-index:6;pointer-events:none}
+.mcell{position:absolute;top:3px;bottom:3px;border-radius:2px;cursor:pointer;border:1px solid transparent}
+.mcell.on{opacity:.9} .mcell.off{background:repeating-linear-gradient(45deg,#2a2d31 0 4px,#212427 4px 8px)!important;border-color:#33373c}
+.lcell{position:absolute;top:0;bottom:0;cursor:ns-resize}
+.lcell svg{position:absolute;inset:0;width:100%;height:100%}
+.lcell .lv{position:absolute;left:3px;top:2px;font-family:var(--font-num);font-size:10px;color:var(--ink-dim);pointer-events:none}
+.tcell{position:absolute;top:2px;bottom:2px;font-family:var(--font-num);font-size:10px;color:var(--accent);padding-left:4px;border-left:1px solid #4d3b20;display:flex;align-items:center}
+.loopband{position:absolute;top:0;bottom:0;background:linear-gradient(var(--accent) 0 4px, rgba(240,163,58,.16) 4px);opacity:.75;border-left:1px solid var(--accent);border-right:1px solid var(--accent);pointer-events:none}
+.playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--play);z-index:7;pointer-events:none;box-shadow:0 0 6px var(--play)}
+.empty{position:absolute;left:14px;top:18px;color:var(--ink-dim)}
+
+/* inspector */
+.insp{border-left:1px solid var(--line);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:16px}
+.card{display:flex;flex-direction:column;gap:8px}
+.fr{display:grid;grid-template-columns:96px 1fr;gap:8px;align-items:center}
+.fr > span{color:var(--ink-dim);font-size:12px}
+.mutes{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+.mutes button{padding:6px 0;font-family:var(--font-num);font-size:12px}
+.mutes button.m{background:var(--well);color:var(--ink-dim);text-decoration:line-through}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+.lanecfg2{display:flex;gap:4px;align-items:center}
+.lanecfg2 select{flex:1}
+.lanecfg2 select:first-child{flex:0 0 108px}
+.log{background:var(--well);border:1px solid var(--line);border-radius:4px;font-family:var(--font-num);font-size:11px;padding:6px;height:150px;overflow:auto;white-space:pre-wrap;color:var(--ink-dim)}
+.log .in{color:var(--play)} .log .out{color:var(--accent)} .log .err{color:var(--warn)}
+details{border-top:1px solid var(--line);padding-top:10px}
+summary{cursor:pointer;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);font-weight:600}
+.spec{font-size:12px;color:var(--ink-dim)}
+.spec code{font-family:var(--font-num);color:var(--ink);font-size:11px}
+.spec table{border-collapse:collapse;width:100%;margin:6px 0}
+.spec td{border-bottom:1px solid var(--line);padding:3px 4px;vertical-align:top}
+.banner{background:#2a2112;color:#f3d6a6;padding:8px 14px;font-size:13px;border-bottom:1px solid #4e3c1c;display:none}
+.banner.show{display:block}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--line);padding:8px 14px;border-radius:6px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
+.toast.show{opacity:1}
+dialog{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;max-width:640px;width:92vw}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+dialog textarea{width:100%;height:240px;background:var(--well);color:var(--ink);border:1px solid var(--line);border-radius:4px;font-family:var(--font-num);font-size:11px}
+@media (max-width:1100px){main{grid-template-columns:200px 1fr}.insp{grid-column:1 / -1;border-left:none;border-top:1px solid var(--line);max-height:42vh}body{overflow:auto}main{min-height:900px}}
+@media (max-width:640px){main{grid-template-columns:1fr}.panel{max-height:220px;border-right:none;border-bottom:1px solid var(--line)}}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}.playhead{box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="banner" id="banner"></div>
+<header>
+  <div class="brand"><b>Cycles Arranger</b><input id="songName" type="text" aria-label="Song name" maxlength="16"></div>
+  <div class="transport" role="group" aria-label="Transport">
+    <button id="btnPlay" title="Play from selected section (Space)" aria-label="Play"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 1.5v11l9-5.5z" fill="currentColor"/></svg></button>
+    <button id="btnStop" title="Stop" aria-label="Stop"><svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" fill="currentColor"/></svg></button>
+    <button id="btnLoop" title="Loop on/off (L)" aria-label="Loop" aria-pressed="false"><svg width="16" height="14" viewBox="0 0 16 14"><path d="M3 5a3 3 0 0 1 3-3h5l-2-1.5M13 9a3 3 0 0 1-3 3H5l2 1.5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></button>
+  </div>
+  <div class="lcd" aria-live="off">
+    <span><small>POS</small><span id="pos" class="num">001.1.01</span></span>
+    <span><small>SEC</small><span id="sec" class="num">--</span></span>
+    <span><small>BPM</small><input id="bpm" type="number" min="30" max="546" step="0.1" aria-label="Song tempo"></span>
+    <span><small>LEN</small><span id="len" class="num">0:00</span></span>
+  </div>
+  <div class="spacer"></div>
+  <span class="pill" id="midiPill"><i></i><span>MIDI off</span></span>
+  <button id="btnMidi">Connect MIDI</button>
+  <button id="btnExport">Save .json</button>
+  <label class="inl" style="cursor:pointer"><input id="fileImport" type="file" accept=".json,application/json" hidden><span class="pseudo" style="border:1px solid var(--line);border-radius:4px;padding:5px 10px;text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink)">Open…</span></label>
+</header>
+
+<main>
+  <aside class="panel" aria-label="Patterns">
+    <h2>Patterns</h2>
+    <p class="hint" style="margin:0 0 10px">Click to add after the selected section, or drag onto the timeline. PC 0–95 selects A01–F16.</p>
+    <div id="palette"></div>
+  </aside>
+
+  <section class="tl" aria-label="Arrangement">
+    <div class="tlbar">
+      <button id="btnDup" title="Duplicate the selected sections (Ctrl+D)">Duplicate</button>
+      <button id="btnDel" title="Delete the selected sections (Delete)">Delete</button>
+      <button id="btnUndo" title="Undo (Ctrl+Z)">Undo</button>
+      <button id="btnLoopSet" title="Loop the selected sections (L). Shift-click to select several.">Loop selection</button>
+      <button id="btnAddLane">Add CC lane</button>
+      <div class="spacer"></div>
+      <label class="inl" for="zoom">Zoom <input id="zoom" type="range" min="2" max="14" value="5"></label>
+    </div>
+    <div class="tlwrap" id="tlwrap"><div class="tlgrid" id="tlgrid"></div></div>
+  </section>
+
+  <aside class="insp" aria-label="Inspector">
+    <div class="card" id="inspBlock"></div>
+
+    <div class="card">
+      <h2>Live playback (any firmware)</h2>
+      <div class="fr"><span>MIDI out</span><select id="selOut"><option value="">No MIDI (visual only)</option></select></div>
+      <div class="fr"><span>MIDI in</span><select id="selIn"><option value="">None</option></select></div>
+      <div class="fr"><span>PC channel</span><div class="row" style="flex-wrap:nowrap"><input id="pcCh" type="number" min="1" max="16" style="width:52px"><button id="btnLearn" title="Listen for a Program Change from the Cycles and use its channel">Learn</button><button id="btnTestPc" title="Send the selected section's pattern now">Test</button></div></div>
+      <div class="fr"><span>PC lead</span><label class="inl" style="text-transform:none;letter-spacing:0"><input id="pcLead" type="number" min="1" max="16"> steps before the pattern ends</label></div>
+      <div class="fr"><span>FX channel</span><input id="fxCh" type="number" min="1" max="16" title="Auto channel: delay and reverb CCs go here"></div>
+      <div class="fr"><span>Track channels</span><div class="row" id="trkCh"></div></div>
+      <div class="fr"><span>Mute CC</span><input id="muteCc" type="number" min="0" max="127"></div>
+      <div class="fr"><span>Send clock</span><label class="inl"><input id="sendClock" type="checkbox"> Start, stop and 24 ppqn clock</label></div>
+      <p class="hint" style="margin:0">On the Cycles: CONFIG › MIDI › SYNC, turn on CLK IN and PCH IN (and PCH OUT, so this page can see the pattern change). In CONFIG › MIDI › IN CHAN, PCH IN must match the PC channel; if it is set to AUTO, use the AUTO channel number. Press Learn, then change pattern on the Cycles, to pick it up automatically.</p>
+    </div>
+
+    <div class="card">
+      <h2>Song mode on the device (fork firmware)</h2>
+      <div class="fr"><span>Target</span><select id="devTarget"><option value="mock">Mock device (simulated, no hardware)</option><option value="midi">Model:Cycles over MIDI</option></select></div>
+      <div class="fr"><span>Command base</span><input id="cmdBase" type="text" class="num" style="width:70px"></div>
+      <p class="hint" id="mockNote" style="margin:0;color:var(--accent)">Simulated: nothing is sent to your Cycles. Real song mode needs the fork firmware, which doesn't exist yet.</p>
+      <div class="row">
+        <button id="btnPing">Identify</button>
+        <button id="btnUpload" class="primary">Send song</button>
+        <button id="btnDevPlay">Play on device</button>
+        <button id="btnDevStop">Stop</button>
+        <button id="btnDevRead">Read back</button>
+        <button id="btnSyx">Save .syx</button>
+      </div>
+      <div class="log" id="log" aria-live="polite"></div>
+      <details>
+        <summary>Song protocol v1</summary>
+        <div class="spec" id="spec"></div>
+      </details>
+    </div>
+  </aside>
+</main>
+
+<div class="toast" id="toast" role="status"></div>
+<dialog id="dlg"><h3 id="dlgTitle" style="margin-top:0"></h3><p class="hint" id="dlgHint"></p><textarea id="dlgText" readonly></textarea><div class="row" style="margin-top:8px;justify-content:flex-end"><button id="dlgCopy">Copy</button><button id="dlgClose" class="primary">Close</button></div></dialog>
+
+<script id="core">
+/* ================= core: pure logic, no DOM ================= */
+const TRACKS = 6;
+const PPQN = 24, PULSES_PER_STEP = 6, STEPS_PER_BAR = 16;
+const MAX_ROWS = 128;
+const ELEKTRON_HDR = [0xF0, 0x00, 0x20, 0x3C, 0x10, 0x00];
+const DEVICE_IDS = {25: 'Model:Samples', 27: 'Model:Cycles'};
+
+function patName(p){ return 'ABCDEF'[Math.floor(p/16)] + String(p%16+1).padStart(2,'0'); }
+
+/* Elektron 7-bit packing: per group of up to 7 bytes, one byte carrying their top bits (first byte -> bit 6). */
+function encode7(bytes){
+  const out = [];
+  for (let i = 0; i < bytes.length; i += 7){
+    const g = bytes.slice(i, i+7); let msb = 0;
+    g.forEach((b, j) => { if (b & 0x80) msb |= 1 << (6 - j); });
+    out.push(msb, ...g.map(b => b & 0x7F));
+  }
+  return out;
+}
+function decode7(bytes){
+  const out = [];
+  for (let i = 0; i < bytes.length; i += 8){
+    const msb = bytes[i];
+    for (let j = 1; j < 8 && i + j < bytes.length; j++) out.push(bytes[i+j] | ((msb >> (7 - j)) & 1) << 7);
+  }
+  return out;
+}
+function frame(payload){ return [...ELEKTRON_HDR, ...encode7(payload), 0xF7]; }
+function unframe(msg){
+  for (let i = 0; i < ELEKTRON_HDR.length; i++) if (msg[i] !== ELEKTRON_HDR[i]) return null;
+  if (msg[msg.length-1] !== 0xF7) return null;
+  return decode7(Array.from(msg.slice(ELEKTRON_HDR.length, -1)));
+}
+function request(seq, cmd, body = []){ return [(seq >> 8) & 0xFF, seq & 0xFF, 0, 0, cmd, ...body]; }
+
+/* Song commands, offsets from a configurable base (default 0x70). */
+const CMD = {INFO:0, WRITE:1, READ:2, PLAY:3, STOP:4, STATUS:5, MODE:6};
+const STATUS_TEXT = {0:'ok', 1:'busy', 2:'bad length', 3:'too many rows', 4:'bad pattern', 5:'song mode off', 0x7F:'unknown command'};
+
+/* Effective tempo carries forward from the last section that sets one. */
+function effectiveTempos(song){
+  let bpm = song.bpm; return song.blocks.map(b => (bpm = b.tempo ? b.tempo : bpm));
+}
+function patLen(song, p){ return (song.patterns[p] && song.patterns[p].len) || 16; }
+
+/* Song body: ver, nameLen, name, rowCount, loopOn, loopStart, loopEnd, rows x 6 bytes */
+function encodeSong(song){
+  const name = (song.name || '').replace(/[^\x20-\x7E]/g,'').slice(0,16);
+  const rows = song.blocks.slice(0, MAX_ROWS);
+  const out = [1, name.length, ...Array.from(name, c => c.charCodeAt(0)), rows.length,
+    song.loop.on ? 1 : 0, Math.min(song.loop.start, 255), Math.min(song.loop.end, 255)];
+  for (const b of rows){
+    let mask = 0; b.mutes.forEach((m, i) => { if (m) mask |= 1 << i; });
+    const t = b.tempo ? Math.round(b.tempo * 120) : 0;   // 1/120 BPM, the unit the OS keeps tempo in
+    out.push(b.pat & 0x7F, Math.max(1, Math.min(255, b.reps)), mask, b.tempo ? 1 : 0, (t >> 8) & 0xFF, t & 0xFF);
+  }
+  return out;
+}
+function decodeSong(body){
+  let i = 0; const ver = body[i++]; if (ver !== 1) throw new Error('song version ' + ver);
+  const nl = body[i++]; const name = String.fromCharCode(...body.slice(i, i+nl)); i += nl;
+  const n = body[i++]; const loop = {on: !!body[i++], start: body[i++], end: body[i++]};
+  const blocks = [];
+  for (let r = 0; r < n; r++){
+    const [pat, reps, mask, flags, th, tl] = body.slice(i, i+6); i += 6;
+    if (pat === undefined) throw new Error('song truncated at row ' + r);
+    blocks.push({pat, reps, mutes: Array.from({length: TRACKS}, (_, k) => !!(mask & 1 << k)), tempo: flags & 1 ? ((th << 8) | tl) / 120 : null});
+  }
+  return {name, loop, blocks};
+}
+
+/* A device that speaks the protocol, so the upload path can be tested without hardware. */
+class MockDevice {
+  constructor(base){ this.base = base; this.song = null; this.mode = 0; this.playing = 0; this.row = 0; this.rep = 0; this.seq = 0; this.timer = null; }
+  handle(payload, ctx){
+    const [sh, sl, , , cmd, ...body] = payload;
+    const reply = (rcmd, b) => [(++this.seq >> 8) & 0xFF, this.seq & 0xFF, sh, sl, rcmd | 0x80, ...b];
+    if (cmd === 0x01) return reply(cmd, [27, 12, ...Array.from('Model:Cycles', c => c.charCodeAt(0))]);
+    if (cmd === 0x02) return reply(cmd, [0,0,0,0,0, ...Array.from('1.13 song-mock', c => c.charCodeAt(0)), 0]);
+    const off = cmd - this.base;
+    switch (off){
+      case CMD.INFO:  return reply(cmd, [0, 1, MAX_ROWS]);
+      case CMD.WRITE:
+        try { const s = decodeSong(body); if (s.blocks.length > MAX_ROWS) return reply(cmd, [3]);
+              if (s.blocks.some(b => b.pat > 95)) return reply(cmd, [4]); this.song = s; this.mode = 1; return reply(cmd, [0]); }
+        catch (e) { return reply(cmd, [2]); }
+      case CMD.READ:  return this.song ? reply(cmd, [0, ...encodeSong({...this.song, bpm: 120, patterns: {}})]) : reply(cmd, [5]);
+      case CMD.PLAY: {
+        if (!this.song || !this.mode) return reply(cmd, [5]);
+        this.row = Math.min(body[0] || 0, this.song.blocks.length - 1); this.rep = 0; this.playing = 1;
+        clearInterval(this.timer);
+        const stepMs = () => 60000 / ((this.song.blocks[this.row].tempo || ctx.bpm()) * 4);
+        let steps = 0;
+        this.timer = setInterval(() => {
+          if (!this.playing) return;
+          steps++; const b = this.song.blocks[this.row];
+          if (steps >= ctx.len(b.pat)){ steps = 0; this.rep++;
+            if (this.rep >= b.reps){ this.rep = 0;
+              if (this.song.loop.on && this.row === this.song.loop.end) this.row = this.song.loop.start;
+              else if (this.row + 1 < this.song.blocks.length) this.row++;
+              else { this.playing = 0; clearInterval(this.timer); } } }
+        }, stepMs());
+        return reply(cmd, [0]);
+      }
+      case CMD.STOP:  this.playing = 0; clearInterval(this.timer); return reply(cmd, [0]);
+      case CMD.STATUS:return reply(cmd, [0, this.playing, this.row, this.rep, this.mode]);
+      case CMD.MODE:  this.mode = body[0] ? 1 : 0; return reply(cmd, [0]);
+      default:        return reply(cmd, [0x7F]);
+    }
+  }
+}
+
+/* Flatten the arrangement into segments the live player walks through. */
+function buildPlan(song){
+  const tempos = effectiveTempos(song); let step = 0;
+  return song.blocks.map((b, i) => {
+    const steps = patLen(song, b.pat) * b.reps;
+    const seg = {i, pat: b.pat, start: step, steps, bpm: tempos[i], len: patLen(song, b.pat)};
+    step += steps; return seg;
+  });
+}
+function nextIndex(song, i){
+  if (song.loop.on && i === song.loop.end) return song.loop.start;
+  return i + 1 < song.blocks.length ? i + 1 : -1;
+}
+/* Model:Cycles CC map (midi.guide). Track parameters answer on each track's channel, FX on the auto channel. */
+const CC_MAP = [
+  ['Track', [[95,'Track Level'],[10,'Pan'],[65,'Pitch'],[80,'Decay Time'],[16,'Color'],[17,'Shape'],[18,'Sweep'],[19,'Contour'],[12,'Delay Send'],[13,'Reverb Send'],[7,'Volume + Dist'],[15,'Swing'],[14,'Chance'],[66,'Punch'],[67,'Gate']]],
+  ['LFO', [[102,'LFO Speed'],[103,'LFO Multiplier'],[104,'LFO Fade'],[109,'LFO Depth']]],
+  ['FX', [[85,'Delay Time'],[86,'Delay Feedback'],[87,'Reverb Size'],[88,'Reverb Tone']]],
+];
+const FX_CCS = new Set([85,86,87,88]);
+function ccName(cc){ for (const [, list] of CC_MAP) for (const [n, name] of list) if (n === cc) return name; return 'CC ' + cc; }
+function laneChannel(l, cfg){
+  if (l.target === 'fx') return cfg.fxCh;
+  if (/^t[1-6]$/.test(l.target || '')) return cfg.trackCh[+l.target[1] - 1];
+  return l.ch || 1;
+}
+function pcLead(cfg, seg){ return Math.max(1, Math.min(cfg.pcLead || 1, seg.len, seg.steps)); }
+function laneValueAt(lane, blockId, frac){
+  const v = lane.values[blockId]; if (!v) return null;
+  return Math.round(v.a + (v.b - v.a) * frac);
+}
+function songSeconds(song){ return buildPlan(song).reduce((s, g) => s + g.steps * 60 / (g.bpm * 4), 0); }
+
+/* The MIDI events a player sends for one pulse. Pure, so it can be tested. */
+function pulseEvents(song, plan, si, pulse, cfg, prevSent){
+  const ev = [], seg = plan[si], b = song.blocks[si], total = seg.steps * PULSES_PER_STEP;
+  if (pulse === 0){
+    b.mutes.forEach((m, t) => {
+      const ch = cfg.trackCh[t] - 1;
+      if (prevSent.mutes[t] !== m){ ev.push([0xB0 | ch, cfg.muteCc, m ? 127 : 0]); prevSent.mutes[t] = m; }
+    });
+  }
+  if (pulse % PULSES_PER_STEP === 0){
+    const step = pulse / PULSES_PER_STEP;
+    song.lanes.forEach(l => {
+      const v = laneValueAt(l, b.id, seg.steps > 1 ? step / (seg.steps - 1) : 0);
+      if (v !== null && prevSent.lanes[l.id] !== v){ ev.push([0xB0 | (laneChannel(l, cfg) - 1), l.cc, v]); prevSent.lanes[l.id] = v; }
+    });
+  }
+  if (pulse === total - pcLead(cfg, seg) * PULSES_PER_STEP){   // inside the last loop of the pattern: queue the next one
+    const ni = nextIndex(song, si);
+    if (ni >= 0 && song.blocks[ni].pat !== b.pat) ev.push([0xC0 | (cfg.pcCh - 1), song.blocks[ni].pat]);
+  }
+  return ev;
+}
+if (typeof module !== 'undefined') module.exports = {laneChannel, pcLead, CC_MAP, encode7, decode7, frame, unframe, request, encodeSong, decodeSong, MockDevice, buildPlan, nextIndex, pulseEvents, songSeconds, effectiveTempos, patName, CMD};
+</script>
+
+<script>
+/* ================= app ================= */
+const $ = id => document.getElementById(id);
+const TRACK_COLORS = ['--t1','--t2','--t3','--t4','--t5','--t6'].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+const patColor = p => `hsl(${(p * 67 + 28) % 360} 58% 64%)`;
+let uid = 1; const newId = () => 'b' + (uid++);
+
+function exampleSong(){
+  const mk = (pat, reps, mutes, label, tempo) => ({id: newId(), pat, reps, mutes: mutes.split('').map(c => c === '0'), label, tempo: tempo || null});
+  const blocks = [
+    mk(0, 2, '000011', 'Intro'),
+    mk(0, 2, '110011', 'Intro +kick'),
+    mk(1, 4, '111110', 'Groove'),
+    mk(2, 4, '111111', 'Build'),
+    mk(3, 8, '111111', 'Drop'),
+    mk(4, 2, '001101', 'Break', 118),
+    mk(3, 4, '111111', 'Drop 2', 124),
+    mk(5, 2, '100001', 'Outro'),
+  ];
+  const lane = {id: 'l1', cc: 18, target: 't1', values: {}};
+  lane.values[blocks[3].id] = {a: 20, b: 120};
+  lane.values[blocks[4].id] = {a: 120, b: 120};
+  lane.values[blocks[5].id] = {a: 90, b: 30};
+  return {
+    v: 1, name: 'Night Drive', bpm: 124,
+    patterns: {0:{name:'Pads', len:16}, 1:{name:'Groove', len:16}, 2:{name:'Build', len:16}, 3:{name:'Drop', len:32}, 4:{name:'Break', len:16}, 5:{name:'Outro', len:16}},
+    blocks, lanes: [lane], loop: {on: false, start: 3, end: 4},
+    midi: {pcCh: 10, fxCh: 10, trackCh: [1,2,3,4,5,6], muteCc: 94, clock: true, pcLead: 4},
+    dev: {cmdBase: 0x70},
+  };
+}
+
+let song = load() || exampleSong();
+let sel = 0, selEnd = 0, history = [], pxStep = 5;
+const selLo = () => Math.min(sel, selEnd), selHi = () => Math.max(sel, selEnd);
+const inSel = i => i >= selLo() && i <= selHi();
+function select(i, extend){ i = Math.max(0, Math.min(song.blocks.length - 1, i)); if (extend) selEnd = i; else sel = selEnd = i; }
+const ui = {midi: null, out: null, inp: null, playing: false, devRow: -1};
+
+function load(){
+  try { const s = JSON.parse(localStorage.getItem('cycles-arranger') || 'null'); if (s && s.blocks) { reid(s); return s; } } catch (e) {}
+  return null;
+}
+function reid(s){
+  // keep ids unique after loading
+  s.blocks.forEach(b => { const n = parseInt(String(b.id).slice(1)); if (n >= uid) uid = n + 1; });
+  s.midi = Object.assign({pcCh: 10, trackCh: [1,2,3,4,5,6], muteCc: 94, clock: true, pcLead: 4}, s.midi || {});
+  if (!s.midi.fxCh) s.midi.fxCh = s.midi.pcCh;
+  (s.lanes || []).forEach(l => { if (!l.target) l.target = 'custom'; if (!l.ch) l.ch = 1; });
+  s.dev = Object.assign({cmdBase: 0x70}, s.dev || {});
+  s.lanes = s.lanes || []; s.loop = s.loop || {on:false, start:0, end:0}; s.patterns = s.patterns || {};
+}
+function save(){ try { localStorage.setItem('cycles-arranger', JSON.stringify(song)); } catch (e) {} }
+function commit(){ history.push(JSON.stringify(song)); if (history.length > 100) history.shift(); }
+function changed(){ clampLoop(); save(); render(); }
+function clampLoop(){
+  const n = song.blocks.length; if (!n){ song.loop.on = false; song.loop.start = song.loop.end = 0; return; }
+  song.loop.start = Math.min(song.loop.start, n-1); song.loop.end = Math.max(song.loop.start, Math.min(song.loop.end, n-1));
+  sel = Math.max(0, Math.min(sel, n-1)); selEnd = Math.max(0, Math.min(selEnd, n-1));
+}
+function toast(msg){ const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1800); }
+function fmtTime(s){ const m = Math.floor(s/60); return m + ':' + String(Math.round(s % 60)).padStart(2,'0'); }
+
+/* ---------- palette ---------- */
+function renderPalette(){
+  const used = new Set(song.blocks.map(b => b.pat));
+  const cur = song.blocks[selHi()] ? song.blocks[selHi()].pat : -1;
+  let h = '';
+  for (let bank = 0; bank < 6; bank++){
+    h += `<div class="bank"><div class="bl">BANK ${'ABCDEF'[bank]}</div><div class="pgrid">`;
+    for (let k = 0; k < 16; k++){
+      const p = bank*16 + k, u = used.has(p);
+      const st = u ? `style="background:${patColor(p)};color:#14110c"` : '';
+      h += `<button class="pcell ${u?'used':''} ${p===cur?'cur':''}" draggable="true" data-p="${p}" ${st} title="${patName(p)}${song.patterns[p]&&song.patterns[p].name?' · '+song.patterns[p].name:''}">${String(k+1).padStart(2,'0')}</button>`;
+    }
+    h += '</div></div>';
+  }
+  $('palette').innerHTML = h;
+}
+$('palette').addEventListener('click', e => {
+  const c = e.target.closest('.pcell'); if (!c) return;
+  insertPattern(+c.dataset.p, song.blocks.length ? selHi() + 1 : 0);
+});
+$('palette').addEventListener('dragstart', e => {
+  const c = e.target.closest('.pcell'); if (!c) return;
+  e.dataTransfer.setData('text/x-pattern', c.dataset.p); e.dataTransfer.effectAllowed = 'copy';
+});
+function insertPattern(p, at){
+  commit();
+  const prev = song.blocks[Math.min(selHi(), song.blocks.length - 1)];
+  song.blocks.splice(at, 0, {id: newId(), pat: p, reps: 1, mutes: prev ? prev.mutes.slice() : Array(TRACKS).fill(false), label: (song.patterns[p] && song.patterns[p].name) || '', tempo: null});
+  if (song.blocks.length > 1){ if (song.loop.start >= at) song.loop.start++; if (song.loop.end >= at) song.loop.end++; }
+  sel = selEnd = at; changed();
+}
+
+/* ---------- timeline ---------- */
+function blockX(plan, i){ return i < plan.length ? plan[i].start * pxStep : (plan.length ? (plan[plan.length-1].start + plan[plan.length-1].steps) * pxStep : 0); }
+function render(){
+  const plan = buildPlan(song);
+  const totalSteps = plan.length ? plan[plan.length-1].start + plan[plan.length-1].steps : 0;
+  const width = Math.max(totalSteps * pxStep + 240, $('tlwrap').clientWidth - 112);
+  const g = $('tlgrid'); g.style.gridTemplateColumns = `112px ${width}px`;
+  let h = '';
+  // ruler
+  h += `<div class="rowh r-ruler" title="Drag across the bar ruler to set the loop">Bar · drag to loop</div><div class="rowb r-ruler" id="ruler">`;
+  const bars = Math.ceil(totalSteps / STEPS_PER_BAR) + 16;
+  const every = pxStep * STEPS_PER_BAR < 26 ? 4 : 1;
+  for (let b = 0; b < bars; b += every) h += `<div class="tick ${b % 4 === 0 ? 'bar4' : ''}" style="left:${b*STEPS_PER_BAR*pxStep}px">${b+1}</div>`;
+  if (song.blocks.length){
+    const ls = blockX(plan, song.loop.start), le = blockX(plan, song.loop.end + 1);
+    h += `<div class="loopband" id="loopband" style="left:${ls}px;width:${le-ls}px;opacity:${song.loop.on?.9:.3}"></div>`;
+  }
+  h += `</div>`;
+  // blocks
+  h += `<div class="rowh r-blocks">Sections</div><div class="rowb r-blocks" id="blkRow">`;
+  if (!song.blocks.length) h += `<div class="empty">Click a pattern on the left to start the arrangement.</div>`;
+  song.blocks.forEach((b, i) => {
+    const s = plan[i], col = patColor(b.pat);
+    const lp = song.loop.on && i >= song.loop.start && i <= song.loop.end;
+    h += `<div class="blk ${inSel(i)?(selLo()===selHi()?'sel':'insel'):''} ${lp?'inloop':''} ${i===ui.devRow?'devrow':''}" tabindex="0" data-i="${i}" style="left:${s.start*pxStep+1}px;width:${s.steps*pxStep-2}px;background:${col};--rw:${s.len*pxStep}px" aria-label="${patName(b.pat)} times ${b.reps}">
+      <div class="reps"></div><span class="bn">${patName(b.pat)} <span style="font-weight:400;opacity:.75">×${b.reps}</span></span><span class="bl2">${escapeHtml(b.label||'')}</span><div class="grip" data-grip="${i}" title="Drag to change repeats"></div></div>`;
+  });
+  h += `</div>`;
+  // tempo row
+  h += `<div class="rowh r-tempo">Tempo</div><div class="rowb r-tempo">`;
+  song.blocks.forEach((b, i) => { if (b.tempo) h += `<div class="tcell" style="left:${plan[i].start*pxStep}px">${b.tempo}</div>`; });
+  h += `</div>`;
+  // mutes
+  for (let t = 0; t < TRACKS; t++){
+    h += `<div class="rowh r-mute"><span class="sw" style="background:${TRACK_COLORS[t]}"></span>T${t+1} <span class="num" style="opacity:.6">ch${song.midi.trackCh[t]}</span></div><div class="rowb r-mute">`;
+    song.blocks.forEach((b, i) => {
+      const s = plan[i];
+      h += `<div class="mcell ${b.mutes[t]?'off':'on'}" data-m="${i},${t}" style="left:${s.start*pxStep+1}px;width:${s.steps*pxStep-2}px;background:${TRACK_COLORS[t]}55" title="T${t+1} ${b.mutes[t]?'muted':'playing'} in ${patName(b.pat)}"></div>`;
+    });
+    h += `</div>`;
+  }
+  // CC lanes
+  song.lanes.forEach(l => {
+    h += `<div class="rowh r-lane" title="${escapeHtml(laneLabel(l))}, CC ${l.cc} on channel ${laneChannel(l, song.midi)}"><span class="sw" style="background:var(--accent)"></span>${escapeHtml(laneLabel(l))}</div><div class="rowb r-lane">`;
+    song.blocks.forEach((b, i) => {
+      const s = plan[i], v = l.values[b.id], w = s.steps*pxStep;
+      let svg = '';
+      if (v){ const ya = 44 - v.a/127*40, yb = 44 - v.b/127*40;
+        svg = `<svg viewBox="0 0 ${w} 46" preserveAspectRatio="none"><path d="M0 46 L0 ${ya} L${w} ${yb} L${w} 46Z" fill="${'#f0a33a'}22"/><path d="M0 ${ya} L${w} ${yb}" stroke="#f0a33a" stroke-width="1.5" fill="none"/></svg><span class="lv">${v.a===v.b?v.a:v.a+'→'+v.b}</span>`; }
+      else svg = `<span class="lv" style="opacity:.5">–</span>`;
+      h += `<div class="lcell" data-l="${l.id},${i}" style="left:${s.start*pxStep}px;width:${w}px;border-left:1px solid #2b2f34" title="Drag up/down to set (left half: start, right half: end; Shift: both). Double-click to clear.">${svg}</div>`;
+    });
+    h += `</div>`;
+  });
+  g.innerHTML = h + `<div class="playhead" id="playhead" style="display:none"></div>`;
+  // header + inspector
+  $('songName').value = song.name; $('bpm').value = song.bpm;
+  $('len').textContent = fmtTime(songSeconds(song));
+  $('btnLoop').classList.toggle('on', song.loop.on); $('btnLoop').setAttribute('aria-pressed', song.loop.on);
+  $('btnUndo').disabled = !history.length;
+  renderPalette(); renderInspector(); renderMidiCfg();
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* block interactions: select, drag to reorder, drag grip to change repeats */
+$('tlgrid').addEventListener('pointerdown', e => {
+  const grip = e.target.closest('[data-grip]');
+  const blk = e.target.closest('.blk');
+  const mc = e.target.closest('.mcell');
+  const lc = e.target.closest('.lcell');
+  if (grip){ e.preventDefault(); startRepeatDrag(+grip.dataset.grip, e); return; }
+  if (e.target.closest('#ruler')){ e.preventDefault(); startLoopDrag(e); return; }
+  if (blk){
+    const i = +blk.dataset.i;
+    if (e.shiftKey){ select(i, true); render(); return; }
+    if (!inSel(i)) select(i, false);
+    render(); startMoveDrag(selLo(), selHi(), i, e); return;
+  }
+  if (mc){ const [i, t] = mc.dataset.m.split(',').map(Number); commit(); song.blocks[i].mutes[t] = !song.blocks[i].mutes[t]; if (!inSel(i)) select(i, false); changed(); return; }
+  if (lc){ e.preventDefault(); startLaneDrag(lc, e); }
+});
+$('tlgrid').addEventListener('dblclick', e => {
+  const lc = e.target.closest('.lcell'); if (!lc) return;
+  const [lid, i] = lc.dataset.l.split(','); const l = song.lanes.find(x => x.id === lid);
+  commit(); delete l.values[song.blocks[+i].id]; changed();
+});
+function startRepeatDrag(i, e){
+  const b = song.blocks[i], len = patLen(song, b.pat), x0 = e.clientX, r0 = b.reps; let did = false;
+  const mv = ev => { const r = Math.max(1, Math.min(255, r0 + Math.round((ev.clientX - x0) / (len * pxStep)))); if (r !== b.reps){ if (!did){ commit(); did = true; } b.reps = r; render(); } };
+  const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); if (did) changed(); };
+  addEventListener('pointermove', mv); addEventListener('pointerup', up);
+}
+function blockAtX(clientX, half){
+  const row = $('blkRow'); const rx = clientX - row.getBoundingClientRect().left; const plan = buildPlan(song);
+  for (let k = 0; k < plan.length; k++){ if (rx < (plan[k].start + (half ? plan[k].steps/2 : plan[k].steps)) * pxStep) return k; }
+  return plan.length - (half ? 0 : 1);
+}
+/* drag across the bar ruler: the sections it touches become the loop (and the selection) */
+function startLoopDrag(e){
+  if (!song.blocks.length) return;
+  const a = Math.max(0, blockAtX(e.clientX, false)); let b = a;
+  const show = () => {
+    const plan = buildPlan(song), lo = Math.min(a, b), hi = Math.max(a, b), band = $('loopband');
+    if (band){ band.classList.add('drag'); band.style.left = blockX(plan, lo) + 'px'; band.style.width = (blockX(plan, hi + 1) - blockX(plan, lo)) + 'px'; }
+  };
+  const mv = ev => { b = Math.max(0, blockAtX(ev.clientX, false)); show(); };
+  const up = () => {
+    removeEventListener('pointermove', mv); removeEventListener('pointerup', up);
+    commit(); song.loop = {on: true, start: Math.min(a, b), end: Math.max(a, b)}; sel = song.loop.start; selEnd = song.loop.end;
+    changed(); toast(`Looping sections ${song.loop.start+1}–${song.loop.end+1}`);
+  };
+  show(); addEventListener('pointermove', mv); addEventListener('pointerup', up);
+}
+function startMoveDrag(lo, hi, grabbed, e){
+  const i = lo, x0 = e.clientX; let moving = false, target = i, mark = null;
+  const row = $('blkRow');
+  const mv = ev => {
+    if (!moving && Math.abs(ev.clientX - x0) < 6) return; moving = true;
+    const rx = ev.clientX - row.getBoundingClientRect().left;
+    const plan = buildPlan(song); target = plan.length;
+    for (let k = 0; k < plan.length; k++){ if (rx < (plan[k].start + plan[k].steps/2) * pxStep){ target = k; break; } }
+    if (!mark){ mark = document.createElement('div'); mark.className = 'insmark'; row.appendChild(mark); }
+    mark.style.left = (blockX(plan, target) - 1) + 'px';
+  };
+  const up = () => {
+    removeEventListener('pointermove', mv); removeEventListener('pointerup', up);
+    if (mark) mark.remove();
+    if (!moving){ if (lo !== hi) { select(grabbed, false); render(); } return; }
+    const n = hi - lo + 1;
+    if (target >= lo && target <= hi + 1) return;
+    commit();
+    const loopIds = song.blocks.slice(song.loop.start, song.loop.end + 1).map(b => b.id);
+    const moved = song.blocks.splice(lo, n); const to = target > hi ? target - n : target;
+    song.blocks.splice(to, 0, ...moved);
+    const idx = loopIds.map(id => song.blocks.findIndex(b => b.id === id));
+    song.loop.start = Math.min(...idx); song.loop.end = Math.max(...idx);
+    sel = to; selEnd = to + n - 1; changed();
+  };
+  addEventListener('pointermove', mv); addEventListener('pointerup', up);
+}
+function startLaneDrag(cell, e){
+  const [lid, i] = cell.dataset.l.split(','); const l = song.lanes.find(x => x.id === lid); const b = song.blocks[+i];
+  const r = cell.getBoundingClientRect(); const right = e.clientX > r.left + r.width/2; const both = e.shiftKey;
+  commit(); if (!inSel(+i)) select(+i, false);
+  const setv = ev => {
+    const v = Math.max(0, Math.min(127, Math.round((r.bottom - ev.clientY) / r.height * 127)));
+    const cur = l.values[b.id] || {a: v, b: v};
+    if (both) { cur.a = cur.b = v; } else if (right) cur.b = v; else cur.a = v;
+    l.values[b.id] = cur; render();
+  };
+  setv(e);
+  const up = () => { removeEventListener('pointermove', setv); removeEventListener('pointerup', up); changed(); };
+  addEventListener('pointermove', setv); addEventListener('pointerup', up);
+}
+/* drop from palette */
+$('tlwrap').addEventListener('dragover', e => { if (e.dataTransfer.types.includes('text/x-pattern')){ e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+$('tlwrap').addEventListener('drop', e => {
+  const p = e.dataTransfer.getData('text/x-pattern'); if (p === '') return; e.preventDefault();
+  const row = $('blkRow'); const rx = e.clientX - row.getBoundingClientRect().left; const plan = buildPlan(song);
+  let at = plan.length; for (let k = 0; k < plan.length; k++){ if (rx < (plan[k].start + plan[k].steps/2) * pxStep){ at = k; break; } }
+  insertPattern(+p, at);
+});
+
+/* ---------- inspector ---------- */
+function laneLabel(l){ const t = l.target === 'fx' ? 'FX' : /^t\d$/.test(l.target) ? 'T' + l.target[1] : 'ch' + l.ch; return `${t} ${ccName(l.cc)}`; }
+function laneEditor(){
+  if (!song.lanes.length) return '<p class="hint" style="margin:0">No lanes. Lanes send CCs during live playback only.</p>';
+  const ccOpts = l => CC_MAP.map(([g, list]) => `<optgroup label="${g}">${list.map(([n, name]) => `<option value="${n}" ${n===l.cc?'selected':''}>${name} (${n})</option>`).join('')}</optgroup>`).join('')
+    + (CC_MAP.some(([, list]) => list.some(([n]) => n === l.cc)) ? '' : `<option value="${l.cc}" selected>CC ${l.cc}</option>`);
+  const tOpts = l => ['t1','t2','t3','t4','t5','t6','fx','custom'].map(t => `<option value="${t}" ${t===l.target?'selected':''}>${t==='fx'?'FX (auto ch)':t==='custom'?'Custom ch':'Track '+t[1]}</option>`).join('');
+  return song.lanes.map(l => `<div class="lanecfg2"><select data-lt="${l.id}" aria-label="Lane target">${tOpts(l)}</select><select data-lc="${l.id}" aria-label="Lane parameter">${ccOpts(l)}</select>${l.target==='custom'?`<input data-lh="${l.id}" type="number" min="1" max="16" value="${l.ch}" aria-label="Lane channel" style="width:48px">`:''}<button data-ld="${l.id}" title="Remove lane" aria-label="Remove lane">×</button></div>`).join('');
+}
+function bindLaneEditor(el){
+  el.querySelectorAll('[data-lt]').forEach(n => n.addEventListener('change', () => { commit(); const l = song.lanes.find(x=>x.id===n.dataset.lt); l.target = n.value; if (FX_CCS.has(l.cc) !== (n.value === 'fx') && n.value !== 'custom') l.cc = n.value === 'fx' ? 86 : 18; changed(); }));
+  el.querySelectorAll('[data-lc]').forEach(n => n.addEventListener('change', () => { commit(); const l = song.lanes.find(x=>x.id===n.dataset.lc); l.cc = +n.value; if (FX_CCS.has(l.cc) && l.target !== 'custom') l.target = 'fx'; else if (!FX_CCS.has(l.cc) && l.target === 'fx') l.target = 't1'; changed(); }));
+  el.querySelectorAll('[data-lh]').forEach(n => n.addEventListener('change', () => { commit(); song.lanes.find(l=>l.id===n.dataset.lh).ch = clampInt(n.value,1,16,1); changed(); }));
+  el.querySelectorAll('[data-ld]').forEach(n => n.addEventListener('click', () => { commit(); song.lanes = song.lanes.filter(l=>l.id!==n.dataset.ld); changed(); }));
+}
+function renderInspector(){
+  const el = $('inspBlock');
+  if (!song.blocks.length){ el.innerHTML = `<h2>Section</h2><p class="hint">No sections yet.</p>`; return; }
+  if (selLo() !== selHi()) return renderRangeInspector(el);
+  const b = song.blocks[sel];
+  const P = song.patterns[b.pat] || {};
+  let opts = ''; for (let p = 0; p < 96; p++) opts += `<option value="${p}" ${p===b.pat?'selected':''}>${patName(p)}${song.patterns[p]&&song.patterns[p].name?' · '+escapeHtml(song.patterns[p].name):''}</option>`;
+  el.innerHTML = `<h2>Section ${sel+1} of ${song.blocks.length}</h2>
+    <div class="fr"><span>Label</span><input id="iLabel" type="text" value="${escapeHtml(b.label||'')}"></div>
+    <div class="fr"><span>Pattern</span><select id="iPat">${opts}</select></div>
+    <div class="fr"><span>Repeats</span><input id="iReps" type="number" min="1" max="255" value="${b.reps}"></div>
+    <div class="fr"><span>Tempo from here</span><input id="iTempo" type="number" min="30" max="546" step="0.1" placeholder="keep" value="${b.tempo||''}"></div>
+    <div class="fr"><span>Mutes</span><div class="mutes">${b.mutes.map((m,t)=>`<button data-mt="${t}" class="${m?'m':''}" style="${m?'':`background:${TRACK_COLORS[t]};color:#14110c;border-color:${TRACK_COLORS[t]}`}" aria-pressed="${m}" title="Track ${t+1}">T${t+1}</button>`).join('')}</div></div>
+    <h2 style="margin-top:6px">Pattern ${patName(b.pat)} (shared by every section that uses it)</h2>
+    <div class="fr"><span>Name</span><input id="iPName" type="text" value="${escapeHtml(P.name||'')}"></div>
+    <div class="fr"><span>Length (16ths)</span><input id="iPLen" type="number" min="1" max="1024" value="${P.len||16}"></div>
+    <p class="hint" style="margin:0">Set the length to what the pattern really plays: steps × scale. 16 steps at 1/2× is 32.</p>
+    <p class="hint" style="margin:0">Shift-click another section to select a run of sections, or drag across the bar ruler to loop them.</p>
+    <h2 style="margin-top:6px">CC lanes</h2>${laneEditor()}`;
+  const on = (id, ev, f) => { const n = $(id); if (n) n.addEventListener(ev, f); };
+  on('iLabel', 'change', e => { commit(); b.label = e.target.value; changed(); });
+  on('iPat', 'change', e => { commit(); b.pat = +e.target.value; changed(); });
+  on('iReps', 'change', e => { commit(); b.reps = clampInt(e.target.value, 1, 255, 1); changed(); });
+  on('iTempo', 'change', e => { commit(); const v = parseFloat(e.target.value); b.tempo = v >= 30 && v <= 546 ? Math.round(v*10)/10 : null; changed(); });
+  on('iPName', 'change', e => { commit(); song.patterns[b.pat] = Object.assign({len:16}, song.patterns[b.pat], {name: e.target.value}); changed(); });
+  on('iPLen', 'change', e => { commit(); song.patterns[b.pat] = Object.assign({}, song.patterns[b.pat], {len: clampInt(e.target.value, 1, 1024, 16)}); changed(); });
+  el.querySelectorAll('[data-mt]').forEach(n => n.addEventListener('click', () => { commit(); const t = +n.dataset.mt; b.mutes[t] = !b.mutes[t]; changed(); }));
+  bindLaneEditor(el);
+}
+function renderRangeInspector(el){
+  const lo = selLo(), hi = selHi(), bl = song.blocks.slice(lo, hi + 1);
+  const plan = buildPlan(song), steps = plan.slice(lo, hi + 1).reduce((s, g) => s + g.steps, 0);
+  const secs = plan.slice(lo, hi + 1).reduce((s, g) => s + g.steps * 60 / (g.bpm * 4), 0);
+  const looped = song.loop.on && song.loop.start === lo && song.loop.end === hi;
+  const state = t => bl.every(b => b.mutes[t]) ? 'm' : bl.some(b => b.mutes[t]) ? 'mixed' : '';
+  el.innerHTML = `<h2>Sections ${lo+1}–${hi+1} selected</h2>
+    <p class="hint num" style="margin:0">${bl.length} sections · ${steps/16} bars · ${fmtTime(secs)} · ${bl.map(b=>patName(b.pat)).join(' ')}</p>
+    <div class="row"><button id="rLoop" class="primary">${looped ? 'Looping these' : 'Loop these'}</button><button id="rDup">Duplicate</button><button id="rDel">Delete</button></div>
+    <div class="fr"><span>Mutes (all)</span><div class="mutes">${[0,1,2,3,4,5].map(t=>{const s=state(t);return `<button data-mt="${t}" class="${s==='m'?'m':''}" style="${s==='m'?'':s==='mixed'?`background:linear-gradient(135deg,${TRACK_COLORS[t]} 50%,var(--well) 50%);color:#fff;text-shadow:0 0 3px #000,0 0 2px #000`:`background:${TRACK_COLORS[t]};color:#14110c;border-color:${TRACK_COLORS[t]}`}" title="Track ${t+1}${s==='mixed'?' (mixed)':''}">T${t+1}</button>`;}).join('')}</div></div>
+    <p class="hint" style="margin:0">Drag the selection on the timeline to move all of it. Click one section to go back to single editing.</p>
+    <h2 style="margin-top:6px">CC lanes</h2>${laneEditor()}`;
+  $('rLoop').onclick = () => { commit(); song.loop = {on: true, start: lo, end: hi}; changed(); toast(`Looping sections ${lo+1}–${hi+1}`); };
+  $('rDup').onclick = dup; $('rDel').onclick = del;
+  el.querySelectorAll('[data-mt]').forEach(n => n.addEventListener('click', () => { commit(); const t = +n.dataset.mt; const v = state(t) !== 'm'; bl.forEach(b => b.mutes[t] = v); changed(); }));
+  bindLaneEditor(el);
+}
+function clampInt(v, lo, hi, d){ v = parseInt(v); return isNaN(v) ? d : Math.max(lo, Math.min(hi, v)); }
+
+function renderMidiCfg(){
+  $('pcCh').value = song.midi.pcCh; $('muteCc').value = song.midi.muteCc; $('sendClock').checked = song.midi.clock;
+  $('pcLead').value = song.midi.pcLead; $('fxCh').value = song.midi.fxCh;
+  $('cmdBase').value = '0x' + song.dev.cmdBase.toString(16).toUpperCase();
+  if (!$('trkCh').children.length){
+    $('trkCh').innerHTML = song.midi.trackCh.map((c,t)=>`<input type="number" min="1" max="16" data-tc="${t}" aria-label="Track ${t+1} channel" style="width:44px">`).join('');
+    $('trkCh').querySelectorAll('[data-tc]').forEach(n => n.addEventListener('change', () => { song.midi.trackCh[+n.dataset.tc] = clampInt(n.value,1,16,1); changed(); }));
+  }
+  $('trkCh').querySelectorAll('[data-tc]').forEach(n => { if (document.activeElement !== n) n.value = song.midi.trackCh[+n.dataset.tc]; });
+}
+$('pcCh').addEventListener('change', e => { song.midi.pcCh = clampInt(e.target.value,1,16,10); changed(); });
+$('pcLead').addEventListener('change', e => { song.midi.pcLead = clampInt(e.target.value,1,16,4); changed(); });
+$('fxCh').addEventListener('change', e => { song.midi.fxCh = clampInt(e.target.value,1,16,10); changed(); });
+$('btnTestPc').onclick = () => {
+  const b = song.blocks[selLo()]; if (!b) return;
+  if (!ui.out){ logLine('Connect MIDI and choose the Cycles as MIDI out first.', 'err'); return; }
+  send([0xC0 | (song.midi.pcCh - 1), b.pat]); logLine(`→ PC ${patName(b.pat)} (program ${b.pat}) on ch ${song.midi.pcCh}`, 'out');
+  if (!ui.inp) logLine('Choose a MIDI in too, with PCH OUT on, to see whether the Cycles switched.', '');
+};
+$('btnLearn').onclick = () => {
+  if (!ui.inp){ logLine('Learn needs a MIDI in from the Cycles, with PCH OUT on (CONFIG › MIDI › SYNC).', 'err'); return; }
+  ui.learn = true; $('btnLearn').textContent = 'Listening…'; logLine('Change pattern on the Cycles now.', '');
+  clearTimeout(ui.learnT); ui.learnT = setTimeout(() => { if (ui.learn){ ui.learn = false; $('btnLearn').textContent = 'Learn'; logLine('No Program Change heard in 15 s. Is PCH OUT on?', 'err'); } }, 15000);
+};
+$('muteCc').addEventListener('change', e => { song.midi.muteCc = clampInt(e.target.value,0,127,94); changed(); });
+$('sendClock').addEventListener('change', e => { song.midi.clock = e.target.checked; changed(); });
+$('cmdBase').addEventListener('change', e => { const v = parseInt(e.target.value); song.dev.cmdBase = v >= 0x03 && v <= 0x79 ? v : 0x70; mock.base = song.dev.cmdBase; changed(); });
+$('songName').addEventListener('change', e => { commit(); song.name = e.target.value.slice(0,16); changed(); });
+$('bpm').addEventListener('change', e => { commit(); const v = parseFloat(e.target.value); song.bpm = v >= 30 && v <= 546 ? Math.round(v*10)/10 : song.bpm; changed(); });
+$('zoom').addEventListener('input', e => { pxStep = +e.target.value; render(); });
+
+/* ---------- edit commands ---------- */
+function dup(){
+  const lo = selLo(), hi = selHi(); if (!song.blocks[lo]) return; commit();
+  const copies = song.blocks.slice(lo, hi + 1).map(b => { const c = JSON.parse(JSON.stringify(b)); c.id = newId();
+    song.lanes.forEach(l => { if (l.values[b.id]) l.values[c.id] = {...l.values[b.id]}; }); return c; });
+  song.blocks.splice(hi + 1, 0, ...copies);
+  if (song.loop.start > hi) song.loop.start += copies.length; if (song.loop.end > hi) song.loop.end += copies.length;
+  sel = hi + 1; selEnd = hi + copies.length; changed();
+}
+function del(){
+  const lo = selLo(), hi = selHi(), n = hi - lo + 1; if (!song.blocks[lo]) return; commit();
+  song.blocks.splice(lo, n).forEach(b => song.lanes.forEach(l => delete l.values[b.id]));
+  const fix = i => i > hi ? i - n : i >= lo ? Math.max(0, lo - (i === song.loop.start ? 0 : 1)) : i;
+  song.loop.start = fix(song.loop.start); song.loop.end = fix(song.loop.end);
+  sel = selEnd = Math.max(0, lo - 1); changed();
+}
+function undo(){ const s = history.pop(); if (!s) return; song = JSON.parse(s); changed(); }
+$('btnDup').onclick = dup; $('btnDel').onclick = del; $('btnUndo').onclick = undo;
+$('btnLoopSet').onclick = () => { commit(); song.loop = {on: true, start: selLo(), end: selHi()}; changed(); toast(selLo() === selHi() ? 'Looping section ' + (sel+1) : `Looping sections ${selLo()+1}–${selHi()+1}`); };
+$('btnLoop').onclick = () => { commit(); song.loop.on = !song.loop.on; changed(); };
+$('btnAddLane').onclick = () => { commit(); song.lanes.push({id: 'l' + Date.now().toString(36), cc: 95, target: 't1', ch: 1, values: {}}); changed(); };
+addEventListener('keydown', e => {
+  if (e.target.matches('input,select,textarea')) return;
+  if (e.code === 'Space'){ e.preventDefault(); ui.playing ? stop() : play(); }
+  else if (e.key === 'Delete' || e.key === 'Backspace'){ e.preventDefault(); del(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key === 'd'){ e.preventDefault(); dup(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key === 'z'){ e.preventDefault(); undo(); }
+  else if (e.key === 'ArrowRight'){ select((e.shiftKey ? selEnd : sel) + 1, e.shiftKey); render(); }
+  else if (e.key === 'ArrowLeft'){ select((e.shiftKey ? selEnd : sel) - 1, e.shiftKey); render(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key === 'a'){ e.preventDefault(); sel = 0; selEnd = song.blocks.length - 1; render(); }
+  else if (e.key === 'Escape'){ select(selEnd, false); render(); }
+  else if (e.key === 'l' || e.key === 'L'){ if (selLo() !== selHi()) $('btnLoopSet').click(); else $('btnLoop').click(); }
+});
+
+/* ---------- save / open ---------- */
+function download(name, data, type){
+  try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], {type})); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+  catch (e) {}
+}
+function showText(title, hint, text){ $('dlgTitle').textContent = title; $('dlgHint').textContent = hint; $('dlgText').value = text; $('dlg').showModal(); }
+$('dlgClose').onclick = () => $('dlg').close();
+$('dlgCopy').onclick = async () => { try { await navigator.clipboard.writeText($('dlgText').value); toast('Copied'); } catch (e) { $('dlgText').select(); toast('Press Ctrl+C to copy'); } };
+$('btnExport').onclick = () => {
+  const json = JSON.stringify(song, null, 1);
+  download((song.name || 'song').replace(/\W+/g,'-') + '.cycles.json', json, 'application/json');
+  showText('Song file', 'If the download did not start (some embedded viewers block it), copy this text into a .json file.', json);
+};
+$('fileImport').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { const s = JSON.parse(await f.text()); if (!Array.isArray(s.blocks)) throw 0; commit(); reid(s); song = s; sel = selEnd = 0; changed(); toast('Opened ' + f.name); }
+  catch (err) { toast('That file is not a Cycles Arranger song'); }
+  e.target.value = '';
+});
+
+/* ---------- Web MIDI ---------- */
+function setPill(state, text){ const p = $('midiPill'); p.className = 'pill ' + state; p.lastElementChild.textContent = text; }
+$('btnMidi').onclick = async () => {
+  if (!navigator.requestMIDIAccess){ banner('This browser has no Web MIDI. Open the page in Chrome, Edge or Opera on a desktop computer.'); return; }
+  try {
+    ui.midi = await navigator.requestMIDIAccess({sysex: true});
+    ui.midi.onstatechange = fillPorts; fillPorts(); setPill('ok', 'MIDI ready'); $('btnMidi').textContent = 'Rescan';
+  } catch (e) {
+    setPill('bad', 'MIDI blocked');
+    banner('MIDI access was refused. In an embedded preview this is expected: save the page as an .html file and open it directly in Chrome, then allow MIDI and SysEx when asked.');
+  }
+};
+function fillPorts(){
+  const fill = (selEl, ports, keep) => {
+    const cur = selEl.value; const first = selEl.options[0].outerHTML;
+    selEl.innerHTML = first + [...ports.values()].map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    const guess = [...ports.values()].find(p => /cycles|elektron/i.test(p.name));
+    selEl.value = [...selEl.options].some(o => o.value === cur) && cur ? cur : (guess ? guess.id : '');
+  };
+  fill($('selOut'), ui.midi.outputs); fill($('selIn'), ui.midi.inputs); bindPorts();
+}
+function bindPorts(){
+  ui.out = ui.midi && $('selOut').value ? ui.midi.outputs.get($('selOut').value) : null;
+  if (ui.inp) ui.inp.onmidimessage = null;
+  ui.inp = ui.midi && $('selIn').value ? ui.midi.inputs.get($('selIn').value) : null;
+  if (ui.inp) ui.inp.onmidimessage = onMidiIn;
+  if (ui.midi) setPill(ui.out ? 'ok' : '', ui.out ? ui.out.name : 'No output chosen');
+}
+$('devTarget').onchange = () => { $('mockNote').style.display = $('devTarget').value === 'mock' ? '' : 'none'; };
+$('selOut').onchange = bindPorts; $('selIn').onchange = bindPorts;
+function send(bytes, t){ if (ui.out) try { ui.out.send(bytes, t); } catch (e) { logLine('send failed: ' + e.message, 'err'); } }
+function banner(msg){ const b = $('banner'); b.textContent = msg; b.classList.add('show'); }
+
+/* ---------- live player: look-ahead scheduler on MIDI timestamps ---------- */
+const LOOKAHEAD = 120, TICK = 25;
+let eng = null;
+function play(){
+  if (!song.blocks.length) return;
+  stop(true);
+  const plan = buildPlan(song); const startI = song.loop.on && (selLo() < song.loop.start || selLo() > song.loop.end) ? song.loop.start : selLo();
+  const t0 = performance.now() + 30, cfg = song.midi;
+  eng = {plan, si: startI, pulse: 0, t: t0 + 60, prev: {mutes: [], lanes: {}}, marks: []};
+  send([0xC0 | (cfg.pcCh - 1), song.blocks[startI].pat], t0);       // stopped: the pattern changes at once
+  logLine(`→ PC ${patName(song.blocks[startI].pat)} on ch ${cfg.pcCh}, then Start`, 'out');
+  if (cfg.clock) send([0xFA], eng.t);
+  ui.playing = true; $('btnPlay').classList.add('on');
+  eng.timer = setInterval(schedule, TICK); schedule(); requestAnimationFrame(drawHead);
+}
+function schedule(){
+  if (!eng) return;
+  const horizon = performance.now() + LOOKAHEAD;
+  while (eng && eng.t < horizon){
+    const seg = eng.plan[eng.si], total = seg.steps * PULSES_PER_STEP;
+    for (const m of pulseEvents(song, eng.plan, eng.si, eng.pulse, song.midi, eng.prev)){
+      send(m, eng.t);
+      if ((m[0] & 0xF0) === 0xC0) eng.marks.push({t: eng.t, log: `→ PC ${patName(m[1])} on ch ${(m[0] & 15) + 1}, ${song.midi.pcLead} step${song.midi.pcLead>1?'s':''} before the switch`});
+    }
+    if (song.midi.clock) send([0xF8], eng.t);
+    if (eng.pulse % PULSES_PER_STEP === 0) eng.marks.push({t: eng.t, si: eng.si, step: eng.pulse / PULSES_PER_STEP});
+    eng.t += 60000 / (seg.bpm * PPQN);
+    if (++eng.pulse >= total){
+      const ni = nextIndex(song, eng.si);
+      if (ni < 0){ const tEnd = eng.t; if (song.midi.clock) send([0xFC], tEnd); eng.marks.push({t: tEnd, end: true}); clearInterval(eng.timer); eng.done = true; return; }
+      eng.si = ni; eng.pulse = 0;
+    }
+  }
+}
+function drawHead(){
+  if (!eng) return;
+  const now = performance.now(); let m = null;
+  while (eng.marks.length && eng.marks[0].t <= now){
+    const k = eng.marks.shift();
+    if (k.log){ logLine(k.log, 'out'); continue; }
+    m = k; if (m.end) break;
+  }
+  if (m){ if (m.end){ stop(true); return; } eng.cur = m; }
+  const ph = $('playhead');
+  if (eng.cur && ph){
+    const seg = eng.plan[eng.cur.si];
+    const dur = 60000 / (seg.bpm * 4), frac = Math.min(1, (now - eng.cur.t) / dur);
+    const step = seg.start + eng.cur.step + frac;
+    ph.style.display = 'block'; ph.style.left = (112 + step * pxStep) + 'px';
+    const bar = Math.floor(step / 16), beat = Math.floor((step % 16) / 4), st = Math.floor(step % 4);
+    $('pos').textContent = String(bar+1).padStart(3,'0') + '.' + (beat+1) + '.' + String(st+1).padStart(2,'0');
+    $('sec').textContent = (eng.cur.si+1) + ' ' + patName(song.blocks[eng.cur.si].pat);
+    const wrap = $('tlwrap'), x = 112 + step * pxStep;
+    if (x > wrap.scrollLeft + wrap.clientWidth - 60 || x < wrap.scrollLeft + 112) wrap.scrollLeft = x - 160;
+  }
+  requestAnimationFrame(drawHead);
+}
+function stop(quiet){
+  if (eng){ clearInterval(eng.timer); if (ui.out && ui.out.clear) try { ui.out.clear(); } catch (e) {} if (!eng.done && song.midi.clock) send([0xFC]); }
+  eng = null; ui.playing = false; $('btnPlay').classList.remove('on');
+  const ph = $('playhead'); if (ph) ph.style.display = 'none';
+  if (!quiet) { $('pos').textContent = '001.1.01'; $('sec').textContent = '--'; }
+}
+$('btnPlay').onclick = () => play(); $('btnStop').onclick = () => stop();
+
+/* ---------- device protocol (song mode in the fork firmware) ---------- */
+const mock = new MockDevice(song.dev.cmdBase);
+const mockCtx = {bpm: () => song.bpm, len: p => patLen(song, p)};
+let seq = 0; const pending = new Map();
+function logLine(s, cls){ const l = $('log'); if (/^[→←]/.test(s) && $('devTarget').value === 'mock' && /cmd|Model|OS|song|play|stop|read|device/.test(s) && !/PC |Cycles on/.test(s)) s = '[MOCK] ' + s; const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = s; l.appendChild(d); l.scrollTop = l.scrollHeight; while (l.childElementCount > 200) l.firstChild.remove(); }
+const hex = a => Array.from(a, b => b.toString(16).padStart(2,'0')).join(' ');
+function onMidiIn(ev){
+  const d = ev.data;
+  if ((d[0] & 0xF0) === 0xC0){
+    const ch = (d[0] & 0x0F) + 1;
+    if (ui.learn){ ui.learn = false; clearTimeout(ui.learnT); $('btnLearn').textContent = 'Learn'; song.midi.pcCh = ch; changed(); logLine(`PC channel set to ${ch}`, 'in'); }
+    logLine(`← Cycles on ${d[1] < 96 ? patName(d[1]) : 'program ' + d[1]} (ch ${ch})`, ch === song.midi.pcCh ? 'in' : 'err');
+    return;
+  }
+  if (d[0] !== 0xF0) return;
+  const p = unframe(d); if (!p) return;
+  const rs = (p[2] << 8) | p[3]; const w = pending.get(rs);
+  if (w){ pending.delete(rs); clearTimeout(w.to); w.res(p); }
+}
+function txn(cmd, body = [], quiet){
+  seq = (seq + 1) & 0x3FFF; const s = seq; const msg = frame(request(s, cmd, body));
+  if (!quiet) logLine(`→ cmd 0x${cmd.toString(16)} (${body.length} B) ${msg.length} B on the wire`, 'out');
+  if ($('devTarget').value === 'mock'){
+    return new Promise(res => setTimeout(() => { const r = mock.handle(unframe(msg), mockCtx); res(r); }, 4));
+  }
+  if (!ui.out || !ui.inp) return Promise.reject(new Error('Choose a MIDI out and in for the Model:Cycles first (Connect MIDI).'));
+  return new Promise((res, rej) => {
+    const to = setTimeout(() => { pending.delete(s); rej(new Error('No answer in 2 s. Stock firmware ignores song commands: this needs the fork with song mode.')); }, 2000);
+    pending.set(s, {res, to}); send(msg);
+  });
+}
+function statusOf(r){ const st = r[5]; return st === 0 ? 'ok' : (STATUS_TEXT[st] || 'error ' + st); }
+async function devCmd(off, body, label){
+  try { const r = await txn(song.dev.cmdBase + off, body); const st = statusOf(r); logLine(`← ${label}: ${st}`, st === 'ok' ? 'in' : 'err'); return st === 'ok' ? r : null; }
+  catch (e) { logLine(e.message, 'err'); return null; }
+}
+$('btnPing').onclick = async () => {
+  try {
+    const r = await txn(0x01, []); const id = r[5];
+    const name = String.fromCharCode(...r.slice(7).filter(c => c >= 0x20 && c < 0x7F));
+    logLine(`← ${DEVICE_IDS[id] || 'device ' + id} (${name})`, 'in');
+    const v = await txn(0x02, [], true); const vs = String.fromCharCode(...v.slice(10).filter(c => c >= 0x20 && c < 0x7F));
+    if (vs) logLine(`← OS ${vs}`, 'in');
+    await devCmd(CMD.INFO, [], 'song mode');
+  } catch (e) { logLine(e.message, 'err'); }
+};
+$('btnUpload').onclick = async () => {
+  if (song.blocks.length > MAX_ROWS){ logLine(`Only the first ${MAX_ROWS} sections are sent.`, 'err'); }
+  const body = encodeSong(song); await devCmd(CMD.WRITE, body, `song "${song.name}", ${Math.min(song.blocks.length, MAX_ROWS)} rows`);
+};
+$('btnDevPlay').onclick = async () => { if (await devCmd(CMD.PLAY, [selLo()], 'play from row ' + (selLo()+1))) pollDevice(); };
+$('btnDevStop').onclick = async () => { await devCmd(CMD.STOP, [], 'stop'); };
+$('btnDevRead').onclick = async () => {
+  const r = await devCmd(CMD.READ, [], 'read back'); if (!r) return;
+  try { const s = decodeSong(r.slice(6)); logLine(`  "${s.name}": ` + s.blocks.map(b => patName(b.pat) + '×' + b.reps).join(' '), 'in'); }
+  catch (e) { logLine('Could not decode: ' + e.message, 'err'); }
+};
+$('btnSyx').onclick = () => {
+  const msg = frame(request(1, song.dev.cmdBase + CMD.WRITE, encodeSong(song)));
+  download((song.name || 'song').replace(/\W+/g,'-') + '.song.syx', new Uint8Array(msg), 'application/octet-stream');
+  showText('SONG_WRITE message', `${msg.length} bytes. If the download did not start, this is the same message as hex.`, hex(msg));
+};
+let pollT = null;
+function pollDevice(){
+  clearInterval(pollT);
+  pollT = setInterval(async () => {
+    try { const r = await txn(song.dev.cmdBase + CMD.STATUS, [], true);
+      const playing = r[6], row = r[7];
+      const nr = playing ? row : -1; if (nr !== ui.devRow){ ui.devRow = nr; render(); }
+      if (!playing){ clearInterval(pollT); logLine('← device stopped', 'in'); }
+    } catch (e) { clearInterval(pollT); }
+  }, 250);
+}
+
+/* spec panel */
+$('spec').innerHTML = `
+<p>Frames use Elektron's Transfer framing so the fork can route them through the OS's own SysEx command dispatch:
+<code>F0 00 20 3C 10 00</code> + 7-bit packed payload + <code>F7</code>. Payload: <code>seq(2) 00 00 cmd body…</code>. Reply: <code>seq(2) reqSeq(2) cmd|0x80 status body…</code>.</p>
+<table>
+<tr><td><code>B+0</code> INFO</td><td>→ <code>status, protoVer=1, maxRows</code></td></tr>
+<tr><td><code>B+1</code> WRITE</td><td>body = song (below) → <code>status</code></td></tr>
+<tr><td><code>B+2</code> READ</td><td>→ <code>status, song</code></td></tr>
+<tr><td><code>B+3</code> PLAY</td><td><code>row</code> → <code>status</code></td></tr>
+<tr><td><code>B+4</code> STOP</td><td>→ <code>status</code></td></tr>
+<tr><td><code>B+5</code> STATUS</td><td>→ <code>status, playing, row, repeat, songMode</code></td></tr>
+<tr><td><code>B+6</code> MODE</td><td><code>0|1</code> → <code>status</code></td></tr>
+</table>
+<p>Song: <code>ver=1, nameLen, name…, rows, loopOn, loopStart, loopEnd</code>, then 6 bytes per row:
+<code>pattern 0–95, repeats 1–255, muteMask (bit n = track n+1), flags (bit0 tempo), tempo u16 BE in 1/120 BPM</code>.
+Status: 0 ok, 1 busy, 2 bad length, 3 too many rows, 4 bad pattern, 5 song mode off, 7F unknown.</p>
+<p>B is the command base (0x70 by default). Change it once the fork has found which command IDs the OS leaves free.</p>`;
+
+render();
+renderMidiCfg();
+if (!navigator.requestMIDIAccess) banner('This browser has no Web MIDI, so the page plays the arrangement visually only. Open it in Chrome, Edge or Opera on a desktop computer to drive the Model:Cycles.');
+</script>
+</body>
+</html>
