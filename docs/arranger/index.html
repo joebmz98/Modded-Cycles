@@ -139,6 +139,19 @@ summary{cursor:pointer;font-size:11px;letter-spacing:.12em;text-transform:upperc
 .spec td{border-bottom:1px solid var(--line);padding:3px 4px;vertical-align:top}
 .banner{background:#2a2112;color:#f3d6a6;padding:8px 14px;font-size:13px;border-bottom:1px solid #4e3c1c;display:none}
 .banner.show{display:block}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(380px,100vw);background:var(--surface);border-left:1px solid var(--line);box-shadow:-12px 0 32px rgba(0,0,0,.45);overflow:auto;padding:12px 14px 20px;z-index:45;display:flex;flex-direction:column;gap:16px}
+.drawer[hidden]{display:none}
+.drawer .card h2{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);margin:0 0 8px;font-weight:600}
+.drawer-head{display:flex;align-items:center;justify-content:space-between;position:sticky;top:-12px;background:var(--surface);padding:6px 0;z-index:1}
+.drawer-head h2{margin:0;font-size:13px;letter-spacing:.12em;text-transform:uppercase}
+#btnSettings[aria-expanded="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.tgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.tgrid button,.pgrid2 button{padding:5px 4px;font-size:12px}
+.tgrid button.on,.pgrid2 button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.pgroup{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);margin:6px 0 2px}
+.pgrid2{display:grid;grid-template-columns:repeat(2,1fr);gap:4px}
+.pgrid2 button{text-align:left;display:flex;justify-content:space-between;gap:6px}
+.pgrid2 button small{color:inherit;opacity:.6;font-family:var(--font-num)}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--line);padding:8px 14px;border-radius:6px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
 .toast.show{opacity:1}
 dialog{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;max-width:640px;width:92vw}
@@ -167,6 +180,7 @@ dialog textarea{width:100%;height:240px;background:var(--well);color:var(--ink);
   <div class="spacer"></div>
   <span class="pill" id="midiPill"><i></i><span>MIDI off</span></span>
   <button id="btnMidi">Connect MIDI</button>
+  <button id="btnSettings" aria-expanded="false" aria-controls="settings">Settings</button>
   <button id="btnExport">Save .json</button>
   <label class="inl" style="cursor:pointer"><input id="fileImport" type="file" accept=".json,application/json" hidden><span class="pseudo" style="border:1px solid var(--line);border-radius:4px;padding:5px 10px;text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink)">Open…</span></label>
 </header>
@@ -192,8 +206,14 @@ dialog textarea{width:100%;height:240px;background:var(--well);color:var(--ink);
   </section>
 
   <aside class="insp" aria-label="Inspector">
+    <div class="card" id="inspLane"></div>
     <div class="card" id="inspBlock"></div>
 
+  </aside>
+</main>
+
+<div class="drawer" id="settings" hidden role="dialog" aria-modal="false" aria-labelledby="settingsTitle">
+  <div class="drawer-head"><h2 id="settingsTitle">Settings</h2><button id="btnSettingsClose" aria-label="Close settings">Close</button></div>
     <div class="card">
       <h2>Live playback (any firmware)</h2>
       <div class="fr"><span>MIDI out</span><select id="selOut"><option value="">No MIDI (visual only)</option></select></div>
@@ -208,7 +228,7 @@ dialog textarea{width:100%;height:240px;background:var(--well);color:var(--ink);
     </div>
 
     <div class="card">
-      <h2>Song mode on the device (fork firmware)</h2>
+      <h2>Song mode on the Cycles (this fork's OS)</h2>
       <div class="fr"><span>Target</span><select id="devTarget"><option value="mock">Mock device (simulated, no hardware)</option><option value="midi">Model:Cycles over MIDI</option></select></div>
       <div class="fr"><span>Messages</span><span class="num hint">F0 00 20 3C 0E 00 …</span></div>
       <p class="hint" id="mockNote" style="margin:0;color:var(--accent)">Simulated: nothing is sent to your Cycles. Choose Model:Cycles over MIDI to use song mode on the machine (this fork's OS).</p>
@@ -226,9 +246,7 @@ dialog textarea{width:100%;height:240px;background:var(--well);color:var(--ink);
         <div class="spec" id="spec"></div>
       </details>
     </div>
-  </aside>
-</main>
-
+</div>
 <div class="toast" id="toast" role="status"></div>
 <dialog id="dlg"><h3 id="dlgTitle" style="margin-top:0"></h3><p class="hint" id="dlgHint"></p><textarea id="dlgText" readonly></textarea><div class="row" style="margin-top:8px;justify-content:flex-end"><button id="dlgCopy">Copy</button><button id="dlgClose" class="primary">Close</button></div></dialog>
 
@@ -579,7 +597,7 @@ function render(){
   $('len').textContent = fmtTime(songSeconds(song));
   $('btnLoop').classList.toggle('on', song.loop.on); $('btnLoop').setAttribute('aria-pressed', song.loop.on);
   $('btnUndo').disabled = !history.length;
-  renderPalette(); renderInspector(); renderMidiCfg();
+  renderPalette(); renderLanePanel(); renderInspector(); renderMidiCfg();
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
@@ -695,37 +713,37 @@ const LANE_TARGETS = ['t1','t2','t3','t4','t5','t6','fx','custom'];
 const targetName = t => t === 'fx' ? 'FX (delay, reverb)' : t === 'custom' ? 'Custom channel (live only)' : 'Track ' + t[1];
 function laneEditor(){
   const add = `<button data-ladd title="Add a CC lane">+ Lane</button>`;
-  if (!song.lanes.length) return `<div class="chips">${add}</div><p class="hint" style="margin:0">No lanes yet. Add one, then drag up and down in its row on the timeline to set values per section.</p>`;
+  if (!song.lanes.length) return `<h2>CC lanes</h2><div class="chips">${add}</div><p class="hint" style="margin:0">No lanes yet. Add one, pick its track and parameter here, then drag up and down in its row on the timeline to set values per section.</p>`;
   const chips = song.lanes.map(l => `<button data-lsel="${l.id}" class="${ui.selLane===l.id?'on':''}" aria-pressed="${ui.selLane===l.id}">${escapeHtml(laneLabel(l))}</button>`).join('');
   const l = song.lanes.find(x => x.id === ui.selLane);
-  let ed = '<p class="hint" style="margin:0">Click a lane (here or its name on the timeline) to choose its track and parameter.</p>';
+  let ed = '<p class="hint" style="margin:0">Select a lane (here or its name on the timeline) to choose its track and parameter.</p>';
   if (l){
-    const tOpts = LANE_TARGETS.map(t => `<option value="${t}" ${t===l.target?'selected':''}>${targetName(t)}</option>`).join('');
+    const tBtns = LANE_TARGETS.map(t => `<button data-ltg="${t}" class="${t===l.target?'on':''}" aria-pressed="${t===l.target}" title="${targetName(t)}">${t==='fx'?'FX':t==='custom'?'Ch…':'T'+t[1]}</button>`).join('');
     const groups = l.target === 'fx' ? CC_MAP.filter(([g]) => g === 'FX') : l.target === 'custom' ? CC_MAP : CC_MAP.filter(([g]) => g !== 'FX');
-    const known = groups.some(([, list]) => list.some(([n]) => n === l.cc));
-    const pOpts = groups.map(([g, list]) => `<optgroup label="${g}">${list.map(([n, name]) => `<option value="${n}" ${n===l.cc?'selected':''}>${name} (CC ${n})</option>`).join('')}</optgroup>`).join('')
-      + (known ? '' : `<option value="${l.cc}" selected>CC ${l.cc}</option>`);
+    const pList = groups.map(([g, list]) => `<div class="pgroup">${g === 'Track' ? 'Track parameters' : g}</div><div class="pgrid2">${list.map(([n, name]) => `<button data-lcc="${n}" class="${n===l.cc?'on':''}" aria-pressed="${n===l.cc}">${name}<small>${n}</small></button>`).join('')}</div>`).join('');
     const set = Object.keys(l.values).filter(id => song.blocks.some(b => b.id === id)).length;
-    ed = `<div class="fr"><span>Track</span><select id="lnTarget" aria-label="Lane track">${tOpts}</select></div>
-      <div class="fr"><span>Parameter</span><select id="lnParam" aria-label="Lane parameter">${pOpts}</select></div>
-      ${l.target === 'custom' ? `<div class="fr"><span>MIDI channel</span><input id="lnCh" type="number" min="1" max="16" value="${l.ch}"></div>` : ''}
-      <p class="hint" style="margin:0">${set} of ${song.blocks.length} sections have values. ${l.target === 'custom' ? 'A custom channel plays in live playback only; the Model:Cycles song mode skips it.' : 'Played by live playback and by song mode on the device.'}</p>
+    ed = `<div class="pgroup">Track</div><div class="tgrid">${tBtns}</div>
+      ${l.target === 'custom' ? `<div class="fr"><span>MIDI channel</span><input id="lnCh" type="number" min="1" max="16" value="${l.ch}"></div><div class="fr"><span>CC number</span><input id="lnCc" type="number" min="0" max="127" value="${l.cc}"></div>` : ''}
+      ${pList}
+      <p class="hint" style="margin:0">${targetName(l.target)} · CC ${l.cc}. ${set} of ${song.blocks.length} sections have values. ${l.target === 'custom' ? 'A custom channel plays in live playback only; song mode on the device skips it.' : 'Played by live playback and by song mode on the device.'}</p>
       <div class="row"><button id="lnClear">Clear values</button><button id="lnRemove">Remove lane</button><button id="lnDone">Done</button></div>`;
   }
   const over = song.lanes.filter(x => x.target !== 'custom').length > 8 ? '<p class="hint" style="margin:0;color:var(--warn)">The device plays the first 8 lanes; the others play in live playback only.</p>' : '';
-  return `<div class="chips">${chips}${add}</div>${ed}${over}`;
+  return `<h2>CC lanes${l ? ': ' + escapeHtml(laneLabel(l)) : ''}</h2><div class="chips">${chips}${add}</div>${ed}${over}`;
 }
+function renderLanePanel(){ const el = $('inspLane'); el.innerHTML = laneEditor(); bindLaneEditor(el); }
 function addLane(){ commit(); const l = {id: 'l' + Date.now().toString(36), cc: 95, target: 't1', ch: 1, values: {}}; song.lanes.push(l); ui.selLane = l.id; changed(); }
 function removeLane(id){ commit(); song.lanes = song.lanes.filter(l => l.id !== id); if (ui.selLane === id) ui.selLane = null; changed(); }
 function bindLaneEditor(el){
   el.querySelectorAll('[data-lsel]').forEach(n => n.addEventListener('click', () => { ui.selLane = ui.selLane === n.dataset.lsel ? null : n.dataset.lsel; render(); }));
   el.querySelectorAll('[data-ladd]').forEach(n => n.addEventListener('click', addLane));
   const l = song.lanes.find(x => x.id === ui.selLane); if (!l) return;
+  el.querySelectorAll('[data-ltg]').forEach(n => n.addEventListener('click', () => { commit(); const t = n.dataset.ltg, wasFx = FX_CCS.has(l.cc); l.target = t;
+    if (t === 'fx' && !wasFx) l.cc = 86; else if (/^t\d$/.test(t) && wasFx) l.cc = 95; changed(); }));
+  el.querySelectorAll('[data-lcc]').forEach(n => n.addEventListener('click', () => { commit(); l.cc = +n.dataset.lcc; changed(); }));
   const on = (id, ev, f) => { const n = el.querySelector('#' + id); if (n) n.addEventListener(ev, f); };
-  on('lnTarget', 'change', e => { commit(); const t = e.target.value; const wasFx = FX_CCS.has(l.cc); l.target = t;
-    if (t === 'fx' && !wasFx) l.cc = 86; else if (/^t\d$/.test(t) && wasFx) l.cc = 95; changed(); });
-  on('lnParam', 'change', e => { commit(); l.cc = +e.target.value; changed(); });
   on('lnCh', 'change', e => { commit(); l.ch = clampInt(e.target.value, 1, 16, 1); changed(); });
+  on('lnCc', 'change', e => { commit(); l.cc = clampInt(e.target.value, 0, 127, 1); changed(); });
   on('lnClear', 'click', () => { commit(); l.values = {}; changed(); });
   on('lnRemove', 'click', () => removeLane(l.id));
   on('lnDone', 'click', () => { ui.selLane = null; render(); });
@@ -748,7 +766,7 @@ function renderInspector(){
     <div class="fr"><span>Length (16ths)</span><input id="iPLen" type="number" min="1" max="1024" value="${P.len||16}"></div>
     <p class="hint" style="margin:0">Set the length to what the pattern really plays: steps × scale. 16 steps at 1/2× is 32.</p>
     <p class="hint" style="margin:0">Shift-click another section to select a run of sections, or drag across the bar ruler to loop them.</p>
-    <h2 style="margin-top:6px">CC lanes</h2>${laneEditor()}`;
+`;
   const on = (id, ev, f) => { const n = $(id); if (n) n.addEventListener(ev, f); };
   on('iLabel', 'change', e => { commit(); b.label = e.target.value; changed(); });
   on('iPat', 'change', e => { commit(); b.pat = +e.target.value; changed(); });
@@ -757,7 +775,6 @@ function renderInspector(){
   on('iPName', 'change', e => { commit(); song.patterns[b.pat] = Object.assign({len:16}, song.patterns[b.pat], {name: e.target.value}); changed(); });
   on('iPLen', 'change', e => { commit(); song.patterns[b.pat] = Object.assign({}, song.patterns[b.pat], {len: clampInt(e.target.value, 1, 1024, 16)}); changed(); });
   el.querySelectorAll('[data-mt]').forEach(n => n.addEventListener('click', () => { commit(); const t = +n.dataset.mt; b.mutes[t] = !b.mutes[t]; changed(); }));
-  bindLaneEditor(el);
 }
 function renderRangeInspector(el){
   const lo = selLo(), hi = selHi(), bl = song.blocks.slice(lo, hi + 1);
@@ -770,11 +787,10 @@ function renderRangeInspector(el){
     <div class="row"><button id="rLoop" class="primary">${looped ? 'Looping these' : 'Loop these'}</button><button id="rDup">Duplicate</button><button id="rDel">Delete</button></div>
     <div class="fr"><span>Mutes (all)</span><div class="mutes">${[0,1,2,3,4,5].map(t=>{const s=state(t);return `<button data-mt="${t}" class="${s==='m'?'m':''}" style="${s==='m'?'':s==='mixed'?`background:linear-gradient(135deg,${TRACK_COLORS[t]} 50%,var(--well) 50%);color:#fff;text-shadow:0 0 3px #000,0 0 2px #000`:`background:${TRACK_COLORS[t]};color:#14110c;border-color:${TRACK_COLORS[t]}`}" title="Track ${t+1}${s==='mixed'?' (mixed)':''}">T${t+1}</button>`;}).join('')}</div></div>
     <p class="hint" style="margin:0">Drag the selection on the timeline to move all of it. Click one section to go back to single editing.</p>
-    <h2 style="margin-top:6px">CC lanes</h2>${laneEditor()}`;
+`;
   $('rLoop').onclick = () => { commit(); song.loop = {on: true, start: lo, end: hi}; changed(); toast(`Looping sections ${lo+1}–${hi+1}`); };
   $('rDup').onclick = dup; $('rDel').onclick = del;
   el.querySelectorAll('[data-mt]').forEach(n => n.addEventListener('click', () => { commit(); const t = +n.dataset.mt; const v = state(t) !== 'm'; bl.forEach(b => b.mutes[t] = v); changed(); }));
-  bindLaneEditor(el);
 }
 function clampInt(v, lo, hi, d){ v = parseInt(v); return isNaN(v) ? d : Math.max(lo, Math.min(hi, v)); }
 
@@ -829,6 +845,7 @@ $('btnLoopSet').onclick = () => { commit(); song.loop = {on: true, start: selLo(
 $('btnLoop').onclick = () => { commit(); song.loop.on = !song.loop.on; changed(); };
 $('btnAddLane').onclick = addLane;
 addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('settings').hidden){ setSettings(false); $('btnSettings').focus(); return; }
   if (e.target.matches('input,select,textarea')) return;
   if (e.code === 'Space'){ e.preventDefault(); ui.playing ? stop() : play(); }
   else if (e.key === 'Delete' || e.key === 'Backspace'){ e.preventDefault(); del(); }
@@ -863,6 +880,9 @@ $('fileImport').addEventListener('change', async e => {
 
 /* ---------- Web MIDI ---------- */
 function setPill(state, text){ const p = $('midiPill'); p.className = 'pill ' + state; p.lastElementChild.textContent = text; }
+function setSettings(open){ $('settings').hidden = !open; $('btnSettings').setAttribute('aria-expanded', open); if (open) $('btnSettingsClose').focus(); }
+$('btnSettings').onclick = () => setSettings($('settings').hidden);
+$('btnSettingsClose').onclick = () => { setSettings(false); $('btnSettings').focus(); };
 $('btnMidi').onclick = async () => {
   if (!navigator.requestMIDIAccess){ banner('This browser has no Web MIDI. Open the page in Chrome, Edge or Opera on a desktop computer.'); return; }
   try {
