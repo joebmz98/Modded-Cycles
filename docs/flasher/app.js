@@ -27,7 +27,7 @@ const ELEKTRON_ST_DL = "https://www.elektron.se/support-downloads/syntakt";
 // same whole write or a mod applied on top of another through "requires").
 const REF_MAINOS = {
   // Modded Cycles OS 2.0: the tweaks of os.json, built by tools/build.py --os
-  "model-tg-st+sample-preview-st+trig-hold+arp+step-rec+tempo-max+boot-anim+multiline-browser+level-pan-values+trigless-dim+midi-live-both+mod-settings+lfo-plus+syntakt-tg-sd-cp-toy-bits-swarm-macro-acid": "82a79f453151cbaceffdd047a646c96721f3ae3849a28f7821928bfbd4a1cca9",
+  "model-tg-st+sample-preview-st+trig-hold+arp+step-rec+tempo-max+boot-anim+multiline-browser+level-pan-values+trigless-dim+midi-live-both+mod-settings+lfo-plus+syntakt-tg-sd-cp-toy-bits-swarm-macro-acid+song-mode": "12bfe23ec9e356fd95009aa3e7b7d8be626f53078f227dba2d544e51c08b69c6",
 };
 const REF_MODS = {
   "model-tg-st": {"w": "c4686bd09a145fd10a6424b7229e414a084fbbcc212b722e4ab7d3ecd7cb7931", "p": "e269630fe5251b58c2a5eb4298e3ab09b4e6fff9f38c254afecf121c8ad446c2"},
@@ -44,6 +44,7 @@ const REF_MODS = {
   "mod-settings": {"w": "c3c023276e80295a9338a80d22711469620d4b4315ae2b1e0a85c9a61e31e9bb"},
   "lfo-plus": {"w": "8443b08fdb4ce7cf1ba26821b27e7df3ab4ca5396e35e7e9a8e591fc430569b6"},
   "syntakt-tg-sd-cp-toy-bits-swarm-macro-acid": {"w": "045d7a3afb79336a765556762de67b49d1b3143dc5ee89559fae1b08529e6afe", "p": "c1f8b90c879c09659c843589daf4213c7e32696f94a80f64679c7a3e90473060"},
+  "song-mode": {"w": "93c220cff9d88012d0aeae3146ab6268e56c7164b12d45865cb59c0c1013cff7"},
 };
 
 // "Samples OS" tab: official Model:Samples OS 1.13 inside the official Model:Cycles container
@@ -629,6 +630,10 @@ const FEAT = {
     "step-rec": { label: "Step record",
       short: "Sequencer stopped, press REC twice: play the notes of the pattern one step at a time. PLAY skips a step, STOP goes back.",
       desc: "With the sequencer stopped, press REC twice quickly: step record starts on step 1 and that step blinks. Each note you play (the TRIG keys on the active track, a pad on its own track, or a MIDI keyboard) is written on the blinking step; notes held together go on the same step, and it moves on when you let go. PLAY skips a step, STOP goes back one, REC stops; it also stops after the last step. Knobs turned before a note become p-locks on that note and the next ones; the track's sound comes back as it was when step record ends." },
+    "song-mode": { label: "Song mode",
+      short: "Arrange a song in the Cycles Arranger web page, send it over USB, and the Model:Cycles plays it: patterns, repeats, mutes, tempo.",
+      desc: "Build a song in the Cycles Arranger (the song arranger page of this site): rows of a pattern, how many times it plays, which tracks are muted, and a tempo change if you want one. With the Model:Cycles connected over USB, press Send song, then Play on device, then PLAY on the machine: each pattern switches on time at the end of the previous one, and each row sets its mutes and tempo as it begins. A loop range repeats until you stop. The song stays in the machine until you switch it off; send it again after power-on. Songs saved with the project and a song page on the machine are planned.",
+      note: "Experimental: proven in emulation, not yet tried on a Model:Cycles." },
     "mod-settings": { label: "USB audio: stereo or 6 tracks",
       short: "SETTINGS › Mods › USB Audio: the stereo mix (2CH) or each track on its own channel (6CH), switched from the machine.",
       desc: "SETTINGS gets a last line, Mods, which opens Mod Settings, the page for the mods' own settings. Its first setting, USB Audio, sends the computer the stereo mix (2CH, as stock) or each of the six tracks on its own channel (6CH), to record stems. Press LEVEL/DATA to switch: the Model:Cycles reconnects to the computer about a second later with 2 or 6 inputs, and keeps the choice after power-off. In 6CH the stereo mix is not sent over USB. 6-channel audio based on ms-multi-output by scottmetoyer." },
@@ -701,6 +706,10 @@ const FEAT = {
     "step-rec": { label: "Step record",
       short: "Séquenceur à l'arrêt, deux appuis sur REC : entrez les notes du pattern pas à pas. PLAY saute un pas, STOP recule.",
       desc: "Séquenceur à l'arrêt, appuyez deux fois vite sur REC : le step record démarre au pas 1, qui clignote. Chaque note jouée (les touches TRIG sur la piste active, un pad sur sa propre piste, ou un clavier MIDI) est écrite sur le pas qui clignote ; les notes tenues ensemble vont sur le même pas, qui avance quand vous relâchez. PLAY saute un pas, STOP recule d'un pas, REC arrête ; il s'arrête aussi après le dernier pas. Les potards tournés avant une note deviennent des p-locks sur cette note et les suivantes ; le son de la piste revient comme avant à la fin du step record." },
+    "song-mode": { label: "Mode morceau",
+      short: "Arrangez un morceau dans la page Cycles Arranger, envoyez-le par USB, et le Model:Cycles le joue : patterns, répétitions, mutes, tempo.",
+      desc: "Construisez un morceau dans le Cycles Arranger (la page arrangeur de morceaux de ce site) : des lignes avec un pattern, le nombre de fois qu'il est joué, les pistes coupées et un changement de tempo si vous le voulez. Model:Cycles branché en USB, appuyez sur Send song, puis Play on device, puis PLAY sur la machine : chaque pattern change à temps à la fin du précédent, et chaque ligne pose ses mutes et son tempo en commençant. Une boucle se répète jusqu'à l'arrêt. Le morceau reste dans la machine jusqu'à l'extinction ; renvoyez-le après l'allumage. Les morceaux enregistrés avec le projet et une page morceau sur la machine sont prévus.",
+      note: "Expérimental : prouvé en émulation, pas encore essayé sur un Model:Cycles." },
     "mod-settings": { label: "Audio USB : stéréo ou 6 pistes",
       short: "SETTINGS › Mods › USB Audio : le mix stéréo (2CH) ou chaque piste sur son propre canal (6CH), au choix depuis la machine.",
       desc: "SETTINGS gagne une dernière ligne, Mods, qui ouvre Mod Settings, la page des réglages des mods. Son premier réglage, USB Audio, envoie à l'ordinateur le mix stéréo (2CH, comme d'origine) ou chacune des six pistes sur son propre canal (6CH), pour enregistrer des pistes séparées. Appuyez sur LEVEL/DATA pour basculer : le Model:Cycles se reconnecte à l'ordinateur environ une seconde plus tard avec 2 ou 6 entrées, et garde le choix après extinction. En 6CH, le mix stéréo n'est pas envoyé en USB. Audio 6 canaux d'après ms-multi-output de scottmetoyer." },

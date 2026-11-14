@@ -119,3 +119,93 @@ PASS the armed flag is consumed by each swap
 3. `[À FAIRE]` Écrire le moteur en C (`tools/machines/song/`), le générateur `gen_song.py`, le tweak `song-mode`.
 4. `[À FAIRE]` Le prouver en émulation : écriture SysEx → table ; tick → appels de `0x40055cd6` aux bons pas.
 5. `[À FAIRE]` Essai sur la machine, avec une interface USB-MIDI sous la main pour la récupération (RECOVERY.md).
+
+## 8. Points d'accroche du mode morceau (14/11/2026, suite)
+
+### 8.1 Recevoir une SysEx : une entrée à nous dans le routeur
+
+- `[FAIT]` Le routeur `0x40081300..0x400813c0` lit `F0 00 20 3C p s c …` : `p` ≤ 17 indexe la table `0x40148d08`
+  (données de l'image, donc modifiables par un tweak). Une entrée est une structure `{octet id = p, octet sous-id = s,
+  table de gestionnaires (+4), min (+8), max (+12), base (+16)}` ; si `s` correspond et `min ≤ c ≤ max`, le routeur
+  saute à `table[c - base]` avec ses arguments (contexte, message depuis `F0`, longueur avec `F7`, port).
+- `[FAIT]` Entrées prises sur le Cycles : `4` (`0x4011290c`), `0x10` (`0x401128e4`, protocole d'Elektron Transfer :
+  128 gestionnaires `0x40080880` qui renvoient tout au serveur RPC C++ `0x40085702` → `0x40084ade`, seulement pour les
+  ports 2 et 4), `0x11` (`0x40112920`, mise à jour d'OS). Les autres `p` ≤ 17 sont libres.
+- `[HYP]` Port 2 = USB (`0x40080822` n'envoie sa réponse qu'au port 2, par l'USB).
+- Choix : **une entrée à nous** pour un `p` libre, avec `c` = numéro de commande et `table[c]` = nos gestionnaires.
+  Plus simple que d'ajouter des commandes au serveur RPC de Transfer (objets C++, `std::function`), et indépendant
+  de lui. Le protocole devient `F0 00 20 3C p 00 cmd corps… F7`, corps en 7 bits ; `SONG-PROTOCOL.md` et
+  l'application suivront.
+- `[FAIT]` **Répondre** : `0x40003396(n, octets)` envoie `n` octets bruts sur le MIDI USB (anneau de 4 031 o,
+  appelé par `0x40080842`, `0x40080878`, `0x40082706`, `0x4008f2b4`).
+- Le gestionnaire tourne dans la tâche MIDI : il ne fait que copier la table du morceau et lever des drapeaux ; tout
+  appel au séquenceur (`0x40055cd6`) reste dans la tâche d'interface.
+
+### 8.2 Le tick à 30 Hz
+
+- `[FAIT]` Message 5 de la tâche d'interface : `0x400081e4 jsr 0x40082464` (pris par step-rec, `sr_tick`),
+  **`0x400081ea jsr 0x400d0b12`** (libre dans `REGISTRY.md`), `0x400081f2 jsr 0x40090f48` (pris par level-pan-values).
+- Choix : détourner `0x400081ea` vers notre `song_tick`, qui appelle `0x400d0b12` et rend son `d0` (lu ensuite par
+  `0x400081f0`). Aucun octet partagé avec step-rec ni level-pan.
+
+### 8.3 Reste à trouver
+
+- `[À FAIRE]` La fonction qui mute une piste (le chemin du CC 94 : gestionnaire CC `0x40080ac4`, probablement un
+  message d'interface comme pour le PC) et celle qui pose le tempo (`0x40058bb4`, notes/38, à confirmer en appel).
+- `[À FAIRE]` La place : un masque libre de `REGISTRY.md` pour le code ; la table du morceau (≈ 800 o) en SDRAM libre.
+
+## 9. Mode morceau, étape 1 : le tweak `song-mode` (14/11/2026)
+
+Construit à la demande de Joe (« build it and merge into my main »), en mémoire vive (l'enregistrement avec le
+projet est l'étape 2, dans les réserves de l'en-tête de pattern libérées par Chord Keys, notes/42 §4).
+
+### 9.1 Ce qui manquait au §8
+
+| Adresse | Rôle |
+|---|---|
+| `0x4001381c(projet, piste, muet, 0)` | Mute d'une piste (0..5) : ce qu'appelle le CC 94 reçu (`0x40082c70..0x40082ca0`) `[FAIT]` |
+| `0x4000c846(projet, tempo)` | Tempo du projet en 1/120 de BPM, borné (bornes de `tempo-max`), puis prévient l'interface : ce qu'appelle le menu Tempo (`0x4003d4f6`) `[FAIT]` (notes/38) |
+| `0x4000eb90(0x400cf866())` | Le projet, pour ces deux appels (comme le chemin du CC) `[FAIT]` |
+| Gestionnaire du routeur | `(message depuis F0, longueur avec F7, port, …)` : `[FAIT en émulation]` (une entrée de test pour le produit `0x0e` atteint son gestionnaire avec ces arguments) |
+
+### 9.2 Le tweak
+
+- `tools/machines/song/song.c` + `song.ld`, `tools/gen_song.py` → `93-song-mode.json` : 1 924 o de code et
+  l'entrée du routeur dans huit masques libérés (un 41×41, quatre 35×35, trois 34×34), 3 048 o de variables en
+  `0x4233d000` (sous ceux du step record), remises à zéro au premier usage par un mot magique.
+- Écritures sur l'OS : `0x400081ea` `jsr 0x400d0b12` → `jsr song_tick` (qui l'appelle et rend son `d0`) ; le
+  pointeur `0x40148d08 + 4 × 0x0e` : `0` → notre entrée `{0x0e, 0x00, table, 0, 6, 0}`.
+- `song_sysex` (tâche MIDI) : décode, vérifie tout le morceau avant de remplacer l'actuel, lève des demandes ;
+  ne touche jamais au séquenceur. Réponses par `0x40003396`, seulement sur le port 2 (USB).
+- `song_tick` (tâche d'interface, 30 Hz) : une boucle du pattern = le compteur de pas qui redescend ; au début de la
+  dernière boucle d'une ligne, la ligne suivante est écrite dans la chaîne (`0x40055cd6`, chaîne d'un pattern, comme
+  un PC) ; au début d'une ligne, ses six mutes et son tempo. Fin sans boucle : le dernier pattern continue.
+- `check_overlaps.py` : aucune écriture partagée. `registry.py` : masques et mémoire déclarés.
+
+### 9.3 Preuve
+
+`tools/emu/test_song.py --cycles … [--with <les tweaks de os.json>]` : le vrai routeur SysEx de l'OS, tout notre
+code, la vraie `0x40055cd6` ; envoi USB, mute, tempo et projet remplacés par des relevés ; séquenceur simulé (compteur
+de pas, au retour au début l'entrée 0 de la chaîne devient le pattern, et elle doit avoir été écrite avant le dernier
+pas). 19 contrôles, seul et avec les 14 tweaks de l'OS : `[FAIT en émulation]`
+
+```
+PASS INFO through the OS's router: [0, 1, 128]
+PASS no reply on another port than USB (2)
+PASS WRITE with pattern 96 refused (status 4)
+PASS READ gives back the song byte for byte
+PASS song_tick returns the d0 of the call it replaced
+PASS patterns played, one per loop: A01 A01 A02 A04 A04 A04 A02 A02 A02 A02 A02 A02
+PASS every next pattern is written before the last step of the loop
+PASS each row sets the six mutes as it begins (4 rows)
+PASS tempo set once, at the row that has one: [15600]
+PASS loop of rows 2-3, ticks every 3 steps: [0, 0, 1, 3, 3, 3, 1, 3, 3, 3, 1, 3]
+```
+
+`[À FAIRE]` Sur la machine : le chargement immédiat à l'arrêt (`0x40055c38`, non exécuté ici), le vrai compteur de
+pas avec des longueurs par piste et des échelles, le mute et le tempo réels, la réception d'une SysEx de 900 o.
+
+### 9.4 Application
+
+`docs/arranger/` parle ce protocole (`songMsg`, `songReply`) ; le faux appareil répond comme le firmware. Identify
+garde le ping d'Elektron Transfer (produit `0x10`), qui marche sur tout firmware.

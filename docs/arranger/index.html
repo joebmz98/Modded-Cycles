@@ -201,7 +201,7 @@ dialog textarea{width:100%;height:240px;background:var(--well);color:var(--ink);
     <div class="card">
       <h2>Song mode on the device (fork firmware)</h2>
       <div class="fr"><span>Target</span><select id="devTarget"><option value="mock">Mock device (simulated, no hardware)</option><option value="midi">Model:Cycles over MIDI</option></select></div>
-      <div class="fr"><span>Command base</span><input id="cmdBase" type="text" class="num" style="width:70px"></div>
+      <div class="fr"><span>Messages</span><span class="num hint">F0 00 20 3C 0E 00 …</span></div>
       <p class="hint" id="mockNote" style="margin:0;color:var(--accent)">Simulated: nothing is sent to your Cycles. Real song mode needs the fork firmware, which doesn't exist yet.</p>
       <div class="row">
         <button id="btnPing">Identify</button>
@@ -259,9 +259,19 @@ function unframe(msg){
 }
 function request(seq, cmd, body = []){ return [(seq >> 8) & 0xFF, seq & 0xFF, 0, 0, cmd, ...body]; }
 
+/* Song mode messages (fork firmware, notes/74): F0 00 20 3C 0E 00 cmd <7-bit packed body> F7.
+   Replies: the same header, cmd | 0x40, then the packed body, status first. */
+const SONG_P = 0x0E;
+function songMsg(cmd, body = []){ return [0xF0, 0x00, 0x20, 0x3C, SONG_P, 0x00, cmd, ...encode7(body), 0xF7]; }
+function songReply(msg){
+  const m = Array.from(msg);
+  if (m.length < 8 || m[0] !== 0xF0 || m[1] !== 0 || m[2] !== 0x20 || m[3] !== 0x3C || m[4] !== SONG_P || m[5] !== 0 || !(m[6] & 0x40) || m[m.length-1] !== 0xF7) return null;
+  return {cmd: m[6] & 0x3F, body: decode7(m.slice(7, -1))};
+}
+
 /* Song commands, offsets from a configurable base (default 0x70). */
 const CMD = {INFO:0, WRITE:1, READ:2, PLAY:3, STOP:4, STATUS:5, MODE:6};
-const STATUS_TEXT = {0:'ok', 1:'busy', 2:'bad length', 3:'too many rows', 4:'bad pattern', 5:'song mode off', 0x7F:'unknown command'};
+const STATUS_TEXT = {0:'ok', 1:'busy', 2:'bad length', 3:'too many rows', 4:'bad pattern', 5:'no song', 0x7F:'unknown command'};
 
 /* Effective tempo carries forward from the last section that sets one. */
 function effectiveTempos(song){
@@ -297,22 +307,19 @@ function decodeSong(body){
 
 /* A device that speaks the protocol, so the upload path can be tested without hardware. */
 class MockDevice {
-  constructor(base){ this.base = base; this.song = null; this.mode = 0; this.playing = 0; this.row = 0; this.rep = 0; this.seq = 0; this.timer = null; }
-  handle(payload, ctx){
-    const [sh, sl, , , cmd, ...body] = payload;
-    const reply = (rcmd, b) => [(++this.seq >> 8) & 0xFF, this.seq & 0xFF, sh, sl, rcmd | 0x80, ...b];
-    if (cmd === 0x01) return reply(cmd, [27, 12, ...Array.from('Model:Cycles', c => c.charCodeAt(0))]);
-    if (cmd === 0x02) return reply(cmd, [0,0,0,0,0, ...Array.from('1.13 song-mock', c => c.charCodeAt(0)), 0]);
-    const off = cmd - this.base;
-    switch (off){
-      case CMD.INFO:  return reply(cmd, [0, 1, MAX_ROWS]);
+  constructor(){ this.song = null; this.mode = 0; this.playing = 0; this.row = 0; this.rep = 0; this.timer = null; }
+  /* takes a command and its decoded body, returns the decoded reply body (status first), like the firmware */
+  handle(cmd, body, ctx){
+    switch (cmd){
+      case CMD.INFO:  return [0, 1, MAX_ROWS];
       case CMD.WRITE:
-        try { const s = decodeSong(body); if (s.blocks.length > MAX_ROWS) return reply(cmd, [3]);
-              if (s.blocks.some(b => b.pat > 95)) return reply(cmd, [4]); this.song = s; this.mode = 1; return reply(cmd, [0]); }
-        catch (e) { return reply(cmd, [2]); }
-      case CMD.READ:  return this.song ? reply(cmd, [0, ...encodeSong({...this.song, bpm: 120, patterns: {}})]) : reply(cmd, [5]);
+        try { const s = decodeSong(body); if (s.blocks.length > MAX_ROWS) return [3];
+              if (s.blocks.some(b => b.pat > 95)) return [4]; this.song = s; this.mode = 1; return [0]; }
+        catch (e) { return [2]; }
+      case CMD.READ:  return this.song ? [0, ...encodeSong({...this.song, bpm: 120, patterns: {}})] : [5];
       case CMD.PLAY: {
-        if (!this.song || !this.mode) return reply(cmd, [5]);
+        if (!this.song) return [5];
+        this.mode = 1;
         this.row = Math.min(body[0] || 0, this.song.blocks.length - 1); this.rep = 0; this.playing = 1;
         clearInterval(this.timer);
         const stepMs = () => 60000 / ((this.song.blocks[this.row].tempo || ctx.bpm()) * 4);
@@ -326,12 +333,12 @@ class MockDevice {
               else if (this.row + 1 < this.song.blocks.length) this.row++;
               else { this.playing = 0; clearInterval(this.timer); } } }
         }, stepMs());
-        return reply(cmd, [0]);
+        return [0];
       }
-      case CMD.STOP:  this.playing = 0; clearInterval(this.timer); return reply(cmd, [0]);
-      case CMD.STATUS:return reply(cmd, [0, this.playing, this.row, this.rep, this.mode]);
-      case CMD.MODE:  this.mode = body[0] ? 1 : 0; return reply(cmd, [0]);
-      default:        return reply(cmd, [0x7F]);
+      case CMD.STOP:  this.playing = 0; this.mode = 0; clearInterval(this.timer); return [0];
+      case CMD.STATUS:return [0, this.playing, this.row, this.rep, this.mode];
+      case CMD.MODE:  this.mode = body[0] ? 1 : 0; if (!this.mode){ this.playing = 0; clearInterval(this.timer); } return [0];
+      default:        return [0x7F];
     }
   }
 }
@@ -391,7 +398,7 @@ function pulseEvents(song, plan, si, pulse, cfg, prevSent){
   }
   return ev;
 }
-if (typeof module !== 'undefined') module.exports = {laneChannel, pcLead, CC_MAP, encode7, decode7, frame, unframe, request, encodeSong, decodeSong, MockDevice, buildPlan, nextIndex, pulseEvents, songSeconds, effectiveTempos, patName, CMD};
+if (typeof module !== 'undefined') module.exports = {songMsg, songReply, SONG_P, laneChannel, pcLead, CC_MAP, encode7, decode7, frame, unframe, request, encodeSong, decodeSong, MockDevice, buildPlan, nextIndex, pulseEvents, songSeconds, effectiveTempos, patName, CMD};
 </script>
 
 <script>
@@ -718,7 +725,6 @@ function clampInt(v, lo, hi, d){ v = parseInt(v); return isNaN(v) ? d : Math.max
 function renderMidiCfg(){
   $('pcCh').value = song.midi.pcCh; $('muteCc').value = song.midi.muteCc; $('sendClock').checked = song.midi.clock;
   $('pcLead').value = song.midi.pcLead; $('fxCh').value = song.midi.fxCh;
-  $('cmdBase').value = '0x' + song.dev.cmdBase.toString(16).toUpperCase();
   if (!$('trkCh').children.length){
     $('trkCh').innerHTML = song.midi.trackCh.map((c,t)=>`<input type="number" min="1" max="16" data-tc="${t}" aria-label="Track ${t+1} channel" style="width:44px">`).join('');
     $('trkCh').querySelectorAll('[data-tc]').forEach(n => n.addEventListener('change', () => { song.midi.trackCh[+n.dataset.tc] = clampInt(n.value,1,16,1); changed(); }));
@@ -741,7 +747,6 @@ $('btnLearn').onclick = () => {
 };
 $('muteCc').addEventListener('change', e => { song.midi.muteCc = clampInt(e.target.value,0,127,94); changed(); });
 $('sendClock').addEventListener('change', e => { song.midi.clock = e.target.checked; changed(); });
-$('cmdBase').addEventListener('change', e => { const v = parseInt(e.target.value); song.dev.cmdBase = v >= 0x03 && v <= 0x79 ? v : 0x70; mock.base = song.dev.cmdBase; changed(); });
 $('songName').addEventListener('change', e => { commit(); song.name = e.target.value.slice(0,16); changed(); });
 $('bpm').addEventListener('change', e => { commit(); const v = parseFloat(e.target.value); song.bpm = v >= 30 && v <= 546 ? Math.round(v*10)/10 : song.bpm; changed(); });
 $('zoom').addEventListener('input', e => { pxStep = +e.target.value; render(); });
@@ -899,9 +904,9 @@ function stop(quiet){
 $('btnPlay').onclick = () => play(); $('btnStop').onclick = () => stop();
 
 /* ---------- device protocol (song mode in the fork firmware) ---------- */
-const mock = new MockDevice(song.dev.cmdBase);
+const mock = new MockDevice();
 const mockCtx = {bpm: () => song.bpm, len: p => patLen(song, p)};
-let seq = 0; const pending = new Map();
+let seq = 0; const pending = new Map(), xferPending = new Map();
 function logLine(s, cls){ const l = $('log'); if (/^[→←]/.test(s) && $('devTarget').value === 'mock' && /cmd|Model|OS|song|play|stop|read|device/.test(s) && !/PC |Cycles on/.test(s)) s = '[MOCK] ' + s; const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = s; l.appendChild(d); l.scrollTop = l.scrollHeight; while (l.childElementCount > 200) l.firstChild.remove(); }
 const hex = a => Array.from(a, b => b.toString(16).padStart(2,'0')).join(' ');
 function onMidiIn(ev){
@@ -913,82 +918,102 @@ function onMidiIn(ev){
     return;
   }
   if (d[0] !== 0xF0) return;
-  const p = unframe(d); if (!p) return;
-  const rs = (p[2] << 8) | p[3]; const w = pending.get(rs);
-  if (w){ pending.delete(rs); clearTimeout(w.to); w.res(p); }
+  const r = songReply(d);
+  if (r){ const w = pending.get(r.cmd); if (w){ pending.delete(r.cmd); clearTimeout(w.to); w.res(r.body); } return; }
+  const p = unframe(d); if (!p) return;                  /* Elektron Transfer reply (Identify) */
+  const rs = (p[2] << 8) | p[3]; const w = xferPending.get(rs);
+  if (w){ xferPending.delete(rs); clearTimeout(w.to); w.res(p); }
 }
+function needPorts(){ if (!ui.out || !ui.inp) throw new Error('Choose a MIDI out and in for the Model:Cycles first (Connect MIDI).'); }
+/* one song-mode command; resolves with the reply body, status first */
 function txn(cmd, body = [], quiet){
-  seq = (seq + 1) & 0x3FFF; const s = seq; const msg = frame(request(s, cmd, body));
-  if (!quiet) logLine(`→ cmd 0x${cmd.toString(16)} (${body.length} B) ${msg.length} B on the wire`, 'out');
-  if ($('devTarget').value === 'mock'){
-    return new Promise(res => setTimeout(() => { const r = mock.handle(unframe(msg), mockCtx); res(r); }, 4));
-  }
-  if (!ui.out || !ui.inp) return Promise.reject(new Error('Choose a MIDI out and in for the Model:Cycles first (Connect MIDI).'));
+  const msg = songMsg(cmd, body);
+  if (!quiet) logLine(`→ cmd ${cmd} (${body.length} B) ${msg.length} B on the wire`, 'out');
+  if ($('devTarget').value === 'mock') return new Promise(res => setTimeout(() => res(mock.handle(cmd, body, mockCtx)), 4));
+  try { needPorts(); } catch (e) { return Promise.reject(e); }
   return new Promise((res, rej) => {
-    const to = setTimeout(() => { pending.delete(s); rej(new Error('No answer in 2 s. Stock firmware ignores song commands: this needs the fork with song mode.')); }, 2000);
-    pending.set(s, {res, to}); send(msg);
+    const old = pending.get(cmd); if (old) clearTimeout(old.to);
+    const to = setTimeout(() => { pending.delete(cmd); rej(new Error("No answer in 2 s. The firmware needs song mode (this fork's OS), and the Cycles must be on USB.")); }, 2000);
+    pending.set(cmd, {res, to}); send(msg);
   });
 }
-function statusOf(r){ const st = r[5]; return st === 0 ? 'ok' : (STATUS_TEXT[st] || 'error ' + st); }
-async function devCmd(off, body, label){
-  try { const r = await txn(song.dev.cmdBase + off, body); const st = statusOf(r); logLine(`← ${label}: ${st}`, st === 'ok' ? 'in' : 'err'); return st === 'ok' ? r : null; }
+/* Elektron Transfer request (works on any firmware): used by Identify */
+function xferTxn(cmd){
+  if ($('devTarget').value === 'mock'){
+    if (cmd === 0x01) return Promise.resolve([0,0,0,0,0x81, 27, 12, ...Array.from('Model:Cycles', c => c.charCodeAt(0))]);
+    return Promise.resolve([0,0,0,0,0x82, 0,0,0,0,0, ...Array.from('1.13 song-mock', c => c.charCodeAt(0)), 0]);
+  }
+  try { needPorts(); } catch (e) { return Promise.reject(e); }
+  seq = (seq + 1) & 0x3FFF; const s = seq;
+  return new Promise((res, rej) => {
+    const to = setTimeout(() => { xferPending.delete(s); rej(new Error('No answer to Identify in 2 s. Is the Cycles connected over USB and Elektron Transfer closed?')); }, 2000);
+    xferPending.set(s, {res, to}); send(frame(request(s, cmd, [])));
+  });
+}
+function statusOf(r){ const st = r[0]; return st === 0 ? 'ok' : (STATUS_TEXT[st] || 'error ' + st); }
+async function devCmd(cmd, body, label){
+  try { const r = await txn(cmd, body); const st = statusOf(r); logLine(`← ${label}: ${st}`, st === 'ok' ? 'in' : 'err'); return st === 'ok' ? r : null; }
   catch (e) { logLine(e.message, 'err'); return null; }
 }
 $('btnPing').onclick = async () => {
   try {
-    const r = await txn(0x01, []); const id = r[5];
+    const r = await xferTxn(0x01); const id = r[5];
     const name = String.fromCharCode(...r.slice(7).filter(c => c >= 0x20 && c < 0x7F));
     logLine(`← ${DEVICE_IDS[id] || 'device ' + id} (${name})`, 'in');
-    const v = await txn(0x02, [], true); const vs = String.fromCharCode(...v.slice(10).filter(c => c >= 0x20 && c < 0x7F));
+    const v = await xferTxn(0x02); const vs = String.fromCharCode(...v.slice(10).filter(c => c >= 0x20 && c < 0x7F));
     if (vs) logLine(`← OS ${vs}`, 'in');
-    await devCmd(CMD.INFO, [], 'song mode');
-  } catch (e) { logLine(e.message, 'err'); }
+  } catch (e) { logLine(e.message, 'err'); return; }
+  const info = await devCmd(CMD.INFO, [], 'song mode');
+  if (info) logLine(`  song mode v${info[1]}, up to ${info[2]} rows`, 'in');
 };
 $('btnUpload').onclick = async () => {
   if (song.blocks.length > MAX_ROWS){ logLine(`Only the first ${MAX_ROWS} sections are sent.`, 'err'); }
   const body = encodeSong(song); await devCmd(CMD.WRITE, body, `song "${song.name}", ${Math.min(song.blocks.length, MAX_ROWS)} rows`);
 };
-$('btnDevPlay').onclick = async () => { if (await devCmd(CMD.PLAY, [selLo()], 'play from row ' + (selLo()+1))) pollDevice(); };
-$('btnDevStop').onclick = async () => { await devCmd(CMD.STOP, [], 'stop'); };
+$('btnDevPlay').onclick = async () => {
+  if (await devCmd(CMD.PLAY, [selLo()], 'armed from row ' + (selLo()+1))){
+    if ($('devTarget').value !== 'mock') logLine('  press PLAY on the Model:Cycles to start the song', 'in');
+    pollDevice();
+  }
+};
+$('btnDevStop').onclick = async () => { await devCmd(CMD.STOP, [], 'song mode off'); };
 $('btnDevRead').onclick = async () => {
   const r = await devCmd(CMD.READ, [], 'read back'); if (!r) return;
-  try { const s = decodeSong(r.slice(6)); logLine(`  "${s.name}": ` + s.blocks.map(b => patName(b.pat) + '×' + b.reps).join(' '), 'in'); }
+  try { const s = decodeSong(r.slice(1)); logLine(`  "${s.name}": ` + s.blocks.map(b => patName(b.pat) + '×' + b.reps).join(' '), 'in'); }
   catch (e) { logLine('Could not decode: ' + e.message, 'err'); }
 };
 $('btnSyx').onclick = () => {
-  const msg = frame(request(1, song.dev.cmdBase + CMD.WRITE, encodeSong(song)));
+  const msg = songMsg(CMD.WRITE, encodeSong(song));
   download((song.name || 'song').replace(/\W+/g,'-') + '.song.syx', new Uint8Array(msg), 'application/octet-stream');
-  showText('SONG_WRITE message', `${msg.length} bytes. If the download did not start, this is the same message as hex.`, hex(msg));
+  showText('Song message', `${msg.length} bytes. If the download did not start, this is the same message as hex.`, hex(msg));
 };
 let pollT = null;
 function pollDevice(){
   clearInterval(pollT);
   pollT = setInterval(async () => {
-    try { const r = await txn(song.dev.cmdBase + CMD.STATUS, [], true);
-      const playing = r[6], row = r[7];
+    try { const r = await txn(CMD.STATUS, [], true);
+      const playing = r[1], row = r[2], on = r[4];
       const nr = playing ? row : -1; if (nr !== ui.devRow){ ui.devRow = nr; render(); }
-      if (!playing){ clearInterval(pollT); logLine('← device stopped', 'in'); }
+      if (!on){ clearInterval(pollT); ui.devRow = -1; render(); logLine('← song mode off', 'in'); }
     } catch (e) { clearInterval(pollT); }
   }, 250);
 }
 
 /* spec panel */
 $('spec').innerHTML = `
-<p>Frames use Elektron's Transfer framing so the fork can route them through the OS's own SysEx command dispatch:
-<code>F0 00 20 3C 10 00</code> + 7-bit packed payload + <code>F7</code>. Payload: <code>seq(2) 00 00 cmd body…</code>. Reply: <code>seq(2) reqSeq(2) cmd|0x80 status body…</code>.</p>
+<p>Messages: <code>F0 00 20 3C 0E 00 cmd</code> + 7-bit packed body + <code>F7</code>. Replies (USB only): the same header with <code>cmd | 0x40</code>, then the packed body, status first. The fork's firmware routes product <code>0E</code> of the OS's SysEx router to song mode.</p>
 <table>
-<tr><td><code>B+0</code> INFO</td><td>→ <code>status, protoVer=1, maxRows</code></td></tr>
-<tr><td><code>B+1</code> WRITE</td><td>body = song (below) → <code>status</code></td></tr>
-<tr><td><code>B+2</code> READ</td><td>→ <code>status, song</code></td></tr>
-<tr><td><code>B+3</code> PLAY</td><td><code>row</code> → <code>status</code></td></tr>
-<tr><td><code>B+4</code> STOP</td><td>→ <code>status</code></td></tr>
-<tr><td><code>B+5</code> STATUS</td><td>→ <code>status, playing, row, repeat, songMode</code></td></tr>
-<tr><td><code>B+6</code> MODE</td><td><code>0|1</code> → <code>status</code></td></tr>
+<tr><td><code>0</code> INFO</td><td>→ <code>status, protoVer=1, maxRows=128</code></td></tr>
+<tr><td><code>1</code> WRITE</td><td>body = song (below) → <code>status</code>; turns song mode on</td></tr>
+<tr><td><code>2</code> READ</td><td>→ <code>status, song</code></td></tr>
+<tr><td><code>3</code> PLAY</td><td><code>row</code> → <code>status</code>; arms the song at that row, PLAY on the machine starts it</td></tr>
+<tr><td><code>4</code> STOP</td><td>→ <code>status</code>; song mode off</td></tr>
+<tr><td><code>5</code> STATUS</td><td>→ <code>status, playing, row, repeat, songMode</code></td></tr>
+<tr><td><code>6</code> MODE</td><td><code>0|1</code> → <code>status</code></td></tr>
 </table>
 <p>Song: <code>ver=1, nameLen, name…, rows, loopOn, loopStart, loopEnd</code>, then 6 bytes per row:
 <code>pattern 0–95, repeats 1–255, muteMask (bit n = track n+1), flags (bit0 tempo), tempo u16 BE in 1/120 BPM</code>.
-Status: 0 ok, 1 busy, 2 bad length, 3 too many rows, 4 bad pattern, 5 song mode off, 7F unknown.</p>
-<p>B is the command base (0x70 by default). Change it once the fork has found which command IDs the OS leaves free.</p>`;
+Status: 0 ok, 2 bad length, 3 too many rows, 4 bad pattern, 5 no song, 7F unknown.</p>`;
 
 render();
 renderMidiCfg();

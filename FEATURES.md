@@ -46,6 +46,7 @@ project's guide calls the back key **BACK**. This file uses **MACHINES** and **B
    - [3.3 Trig preview](#33-trig-preview)
    - [3.4 Tempo up to 546 BPM](#34-tempo-up-to-546-bpm)
    - [3.5 Step record](#35-step-record)
+   - [3.6 Song mode](#36-song-mode)
 4. [Live](#4-live)
    - [4.1 Latching mute](#41-latching-mute)
    - [4.2 Live MIDI OUT + THRU toggle](#42-live-midi-out--thru-toggle)
@@ -572,6 +573,31 @@ test plan of PR #101 (notes/73 §7). Also checked in the emulator on the OS's ow
 (what it writes is byte for byte what the OS's live recording writes for the same notes and knob turns).
 
 ---
+
+### 3.6 Song mode
+
+**What it does.** A song arranged in the Cycles Arranger (the song arranger page, `docs/arranger/`) is sent to the
+Model:Cycles over USB, and the machine plays it by itself: each row's pattern for its number of loops, switching on
+time at the end of the previous one, with the row's track mutes and tempo, and a loop range.
+
+**How to use it** (guide):
+
+1. In the arranger, build the song, connect the Model:Cycles over USB (Elektron Transfer closed), press
+   **Connect MIDI**, choose the Model:Cycles as MIDI out and in, and set **Target** to *Model:Cycles over MIDI*.
+2. **Send song**, select the section to start from, **Play on device**, then **PLAY** on the machine.
+3. **Stop** in the arranger turns song mode off; the machine plays patterns as usual again.
+
+**Limits and interactions.**
+
+- The song is kept in RAM: it is lost at power-off (send it again). Up to 128 rows. Saving it with the project and a
+  song page on the machine are planned (notes/74).
+- CC lanes are not sent to the machine; they play only in the arranger's live playback.
+- Without a loop, the last row's pattern keeps looping at the end.
+- The pattern changes go through the same path as an incoming Program Change, written one loop ahead. The loop count is
+  read 30 times a second: a pattern shorter than about 33 ms (one step above 450 BPM) can be missed.
+- Replies go back over USB only; the song can be sent over the MIDI IN port, but the arranger then sees no answer.
+- Status: **experimental**, proven in emulation on the OS's own code with the whole OS (`tools/emu/test_song.py`),
+  not yet tried on a Model:Cycles.
 
 ## 4. Live
 

@@ -19,7 +19,8 @@
     "midi-live-both",
     "mod-settings",
     "lfo-plus",
-    "syntakt-tg-sd-cp-toy-bits-swarm-macro-acid"
+    "syntakt-tg-sd-cp-toy-bits-swarm-macro-acid",
+    "song-mode"
   ],
   "machines": [
     { "code": "sampler", "name": "Sampler", "label": "Model-TG sampler" },
@@ -54,6 +55,8 @@
       "guide": "arp", "notes": "notes/32" },
     { "id": "step-rec", "cat": "seq", "tweaks": ["step-rec"], "status": "tested", "credit": null,
       "guide": "step-rec", "notes": "notes/73" },
+    { "id": "song-mode", "cat": "seq", "tweaks": ["song-mode"], "status": "experimental", "credit": null,
+      "guide": "song-mode", "notes": "notes/74" },
     { "id": "tempo-max", "cat": "seq", "tweaks": ["tempo-max"], "status": "tested", "credit": null,
       "guide": "tempo", "notes": "notes/38" },
     { "id": "latching-mute", "cat": "live", "tweaks": [], "status": "tested",

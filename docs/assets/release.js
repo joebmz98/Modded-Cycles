@@ -3,6 +3,12 @@
  *   { version: "1.1", date: "2026-10-15", changes: [{ en: "…", fr: "…" }] }
  */
 window.MC_RELEASES = [
+  { version: "2.1", date: "2026-11-14", changes: [
+    { en: "New in this fork, song mode (experimental): arrange a song in the Cycles Arranger (the new song arranger page), send it over USB, and the Model:Cycles plays it by itself: each pattern for its number of loops, switching on time, with its track mutes and tempo, and a loop range. The song stays in the machine until power-off",
+      fr: "Nouveau dans ce fork, le mode morceau (expérimental) : arrangez un morceau dans le Cycles Arranger (la nouvelle page arrangeur de morceaux), envoyez-le par USB, et le Model:Cycles le joue tout seul : chaque pattern pendant son nombre de boucles, en changeant à temps, avec ses mutes et son tempo, et une boucle. Le morceau reste dans la machine jusqu'à l'extinction" },
+    { en: "Proven in the emulator on the OS's own code, with the whole OS; not yet tried on a Model:Cycles. Nothing else in the OS changes",
+      fr: "Prouvé en émulation sur le code même de l'OS, avec tout l'OS ; pas encore essayé sur un Model:Cycles. Rien d'autre ne change dans l'OS" },
+  ] },
   { version: "2.0", date: "2026-10-18", changes: [
     { en: "One firmware now, the Modded Cycles OS: nothing to tick any more, everyone runs the same OS. Projects, tips and bug reports now mean the same thing for everyone. The flasher's first tab lists what the OS contains, and Details on a row opens its full description and its page in the guide",
       fr: "Un seul firmware maintenant, le Modded Cycles OS : plus rien à cocher, tout le monde a le même OS. Les projets, les astuces et les rapports de bugs veulent maintenant dire la même chose pour tous. Le premier onglet du flasher liste ce que contient l'OS, et Détails sur une ligne ouvre sa description complète et sa page dans le guide" },

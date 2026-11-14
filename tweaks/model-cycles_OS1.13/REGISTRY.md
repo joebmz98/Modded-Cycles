@@ -6,10 +6,10 @@ Adresses : VA de l'OS 1.13 (la section 3 commence en `0x40000400`). Un mod qui v
 
 ## En bref
 
-- 283 tweaks, 31 778 écritures.
-- Masques de sprites libérables : 164 (35 960 o), dont 54 pris (18 384 o) et **110 libres (17 576 o)**.
-- Crochets sur l'OS : 102 adresses détournées, dont 56 à l'identique par des mods de familles différentes.
-- Pointeurs réécrits : 58 adresses. Écritures dans des octets 0xFF hors masques : 14 zones.
+- 284 tweaks, 31 796 écritures.
+- Masques de sprites libérables : 164 (35 960 o), dont 62 pris (20 648 o) et **102 libres (15 312 o)**.
+- Crochets sur l'OS : 103 adresses détournées, dont 56 à l'identique par des mods de familles différentes.
+- Pointeurs réécrits : 59 adresses. Écritures dans des octets 0xFF hors masques : 14 zones.
 - Charges utiles ajoutées après l'OS : 262 tweaks ; place restante au §3.
 
 ## 1. Masques de sprites libérés
@@ -89,7 +89,7 @@ Les masques d'un groupe sont identiques octet pour octet et chacun n'est désign
 | `0x4019089c` | `0x400ac748` | libre | |
 | `0x40192a24` | `0x400ac292` | libre | |
 
-### 35×35 : 19 masques de 280 o (copie gardée `0x4014a660`) : 15 pris, 4 libres (1 120 o)
+### 35×35 : 19 masques de 280 o (copie gardée `0x4014a660`) : 19 pris, 0 libres (0 o)
 
 | masque | constante | état | mods (octets écrits) |
 |---|---|---|---|
@@ -108,12 +108,12 @@ Les masques d'un groupe sont identiques octet pour octet et chacun n'est désign
 | `0x40163fb8` | `0x400b34c8` | pris (147/280 o) | track-filter (147 o) |
 | `0x4016616c` | `0x400b2898` | pris (164/280 o) | track-filter (164 o) |
 | `0x40166760` | `0x400b272e` | pris (208/280 o) | track-filter (208 o) |
-| `0x40167c50` | `0x400b211e` | libre | |
-| `0x401696a0` | `0x400b1540` | libre | |
-| `0x401699a8` | `0x400b1500` | libre | |
-| `0x4016aa28` | `0x400b1480` | libre | |
+| `0x40167c50` | `0x400b211e` | pris (262/280 o) | song-mode (262 o) |
+| `0x401696a0` | `0x400b1540` | pris (252/280 o) | song-mode (252 o) |
+| `0x401699a8` | `0x400b1500` | pris (262/280 o) | song-mode (262 o) |
+| `0x4016aa28` | `0x400b1480` | pris (276/280 o) | song-mode (276 o) |
 
-### 34×34 : 14 masques de 272 o (copie gardée `0x4016bfc8`) : 8 pris, 6 libres (1 632 o)
+### 34×34 : 14 masques de 272 o (copie gardée `0x4016bfc8`) : 11 pris, 3 libres (816 o)
 
 | masque | constante | état | mods (octets écrits) |
 |---|---|---|---|
@@ -124,9 +124,9 @@ Les masques d'un groupe sont identiques octet pour octet et chacun n'est désign
 | `0x401835b8` | `0x400adedc` | pris (270/272 o) | lfo-plus (270 o) |
 | `0x40184df8` | `0x400adbc8` | pris (248/272 o) | lfo-plus (248 o) |
 | `0x40185308` | `0x400adb8c` | pris (248/272 o) | lfo-plus (248 o) |
-| `0x40185f48` | `0x400ad9c4` | libre | |
-| `0x40186238` | `0x400ad988` | libre | |
-| `0x40189618` | `0x400ad364` | libre | |
+| `0x40185f48` | `0x400ad9c4` | pris (252/272 o) | song-mode (252 o) |
+| `0x40186238` | `0x400ad988` | pris (244/272 o) | song-mode (244 o) |
+| `0x40189618` | `0x400ad364` | pris (188/272 o) | song-mode (188 o) |
 | `0x4018af88` | `0x400ad18a` | libre | |
 | `0x4018b1a8` | `0x400ad16e` | libre | |
 | `0x4018ff64` | `0x400ac7fc` | libre | |
@@ -215,11 +215,11 @@ Les masques d'un groupe sont identiques octet pour octet et chacun n'est désign
 | `0x40185648` | `0x400ada58` | libre | |
 | `0x401857f8` | `0x400ada1c` | libre | |
 
-### 41×41 : 1 masques de 328 o (copie gardée `0x40187298`) : 0 pris, 1 libres (328 o)
+### 41×41 : 1 masques de 328 o (copie gardée `0x40187298`) : 1 pris, 0 libres (0 o)
 
 | masque | constante | état | mods (octets écrits) |
 |---|---|---|---|
-| `0x4018d918` | `0x400acd1a` | libre | |
+| `0x4018d918` | `0x400acd1a` | pris (314/328 o) | song-mode (314 o) |
 
 ### 52×22 : 1 masques de 208 o (copie gardée `0x4014bfe4`) : 0 pris, 1 libres (208 o)
 
@@ -554,6 +554,7 @@ Instructions de l'OS remplacées par un détour (`jsr`, `jmp`, `bsr.l`, `bra.l`)
 | `0x40007120` | `4eb94006ba76` | jsr | masque `0x40182b38` +0x4a `sr_off` | step-rec | notes/73 |
 | `0x4000721c` | `4eb94006ba76` | jsr | masque `0x40182b38` +0x2e `sr_on` | step-rec | notes/73 |
 | `0x400081e4` | `4eb940082464` | jsr | masque `0x40182b38` +0xae `sr_tick` | step-rec | notes/73 |
+| `0x400081ea` | `4eb9400d0b12` | jsr | masque `0x40186238` +0xe8 `song_tick` | song-mode | notes/74 |
 | `0x400081f2` | `4eb940090f48` | jsr | masque `0x4018f4b4` +0x0 | level-pan-values | notes/44 |
 | `0x4000bae0` | `204031842a14` | jsr | masque `0x40182b38` +0x66 `sr_set` | step-rec | notes/73 |
 | `0x4000c140` | `4e56ffe0202e000c` | jmp | masque `0x401780a8` +0x0 `lfo_dest` | lfo-plus | notes/56 |
@@ -719,6 +720,7 @@ Constantes 32 bits de l'OS (tables de fonctions, données) qui pointent maintena
 | `0x40118614` | `400ab6e8` | masque `0x4018a788` +0x0 | sdvintage-snare |
 | `0x4011862c` | `400ab3b0` | charge utile (mémoire) +0x31000 | sdvintage-exact |
 | `0x4011862c` | `400ab3b0` | masque `0x4016cae8` +0x0 | sdvintage-snare |
+| `0x40148d40` | `00000000` | masque `0x40189618` +0x8a | song-mode |
 
 ## 6. Données sauvegardées (déclaré d'après les notes)
 
@@ -729,6 +731,7 @@ Ce que les écritures ne montrent pas : les octets des structures sauvegardées 
 | arp | octet +512 de chaque piste dans le pattern : sens de l'arpège et octaves (inutilisé par l'OS, sauvegardé avec le pattern) | notes/32 §4 |
 | lfo-plus | octets +88..+91 de l'enregistrement d'un son : LFO 2 empaqueté (format de DavidCaruso) ; mémoire 0x4233f000..0x4233f49b, au-dessus du BSS de l'OS, remise à zéro au premier usage | notes/56 §3 |
 | step-rec | mémoire 0x4233e800..0x4233e8ff, dans le trou libre au-dessus du BSS de l'OS (0x423380b0..0x4233efff, notes/56 §3.5.2) : les variables du step record, posées à son entrée (seul sr_active, dans un masque, vaut 0 au démarrage) | notes/73 §3 |
+| song-mode | mémoire 0x4233d000..0x4233dbe7, dans le trou libre au-dessus du BSS de l'OS (0x423380b0..0x4233efff, notes/56 §3.5.2) : le morceau et l'état du moteur, remis à zéro au premier usage (mot magique) ; entrée 0x0e de la table du routeur SysEx (0x40148d08) | notes/74 §9 |
 | mod-settings | octets 0x404e9b80..0x404e9b8f du bloc des réglages de l'OS (0x404e9b10, 272 o, flash 0x78000), hors de sa somme de contrôle : l'enregistrement « MODS » des réglages des mods (0x404e9b63..0x404e9c0f n'est ni lu ni écrit par l'OS) | notes/72 §3 |
 | mod-settings | octets de l'OS réécrits pendant qu'il tourne (« runtime », vérifié par `check_overlaps.py`) : `0x4000253b` (2 o), `0x40002564` (3 o), `0x400027b3` (2 o), `0x400027d3` (5 o), `0x400027e8` (23 o), `0x4000281f` (2 o), `0x400029b9` (2 o), `0x400029d2` (6 o), `0x400029e4` (11 o), `0x40002a06` (25 o), `0x40002a42` (11 o), `0x40002ceb` (2 o), `0x4019b2fa` (2 o), `0x4019b387` (2 o), `0x4019b397` (2 o) | notes/72 |
 
@@ -778,4 +781,5 @@ Nombre d'écritures de chaque sorte (une plage pour une famille de moteurs).
 | midi-both | 3 | 3 | 0 | 0 | 0 | 0 | 0 |  | notes/53 |
 | midi-live-both | 6 | 0 | 4 | 0 | 1 | 1 | 0 |  | notes/53 |
 | lfo-plus | 30 | 0 | 12 | 4 | 7 | 7 | 0 |  | notes/56 |
+| song-mode | 18 | 0 | 1 | 1 | 8 | 8 | 0 |  | notes/74 |
 
