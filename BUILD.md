@@ -20,10 +20,10 @@ python3 tools/build.py -i firmware/model-cycles_OS1.13.syx --syntakt firmware/Sy
 
 The build applies each tweak's writes to section 3 (the MAIN OS) of your file, checking every `old` byte, appends the
 payloads (Model-TG's code, the Syntakt engines extracted from your Syntakt file, MACRO and ACID), repacks the section
-(aPLib) and re-signs the container (HMAC). It prints the SHA-256 of the patched MAIN OS. For version 2.0 it must be:
+(aPLib) and re-signs the container (HMAC). It prints the SHA-256 of the patched MAIN OS. For version 2.0 of this fork (with song mode) it must be:
 
 ```
-82a79f453151cbaceffdd047a646c96721f3ae3849a28f7821928bfbd4a1cca9
+12bfe23ec9e356fd95009aa3e7b7d8be626f53078f227dba2d544e51c08b69c6
 ```
 
 The same value is the `REF_MAINOS` entry of `docs/flasher/app.js`: the web flasher refuses a build whose MAIN OS
