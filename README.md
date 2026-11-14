@@ -8,6 +8,7 @@ A Sampler machine · the Syntakt engines · MACRO and ACID machines · four LFOs
 
 [**Open the web flasher**](https://18nelli18.github.io/Modded-Cycles/flasher/) &nbsp;·&nbsp;
 [Read the guide](https://18nelli18.github.io/Modded-Cycles/guide/) &nbsp;·&nbsp;
+[Arrange songs](https://joebmz98.github.io/Modded-Cycles/arranger/) &nbsp;·&nbsp;
 [Every feature in detail](FEATURES.md) &nbsp;·&nbsp;
 [Join the Discord](https://discord.gg/hWegtJZcmm) &nbsp;·&nbsp;
 [Support on Ko-fi](https://ko-fi.com/18nelli)
@@ -17,6 +18,23 @@ A Sampler machine · the Syntakt engines · MACRO and ACID machines · four LFOs
 </div>
 
 ---
+
+## Song arrangement (this fork)
+
+This fork adds the **Cycles Arranger**, a song arranger for the Model:Cycles that runs in your browser:
+<https://joebmz98.github.io/Modded-Cycles/arranger/> (Chrome, Edge or Opera on a desktop computer; it needs Web MIDI).
+
+- Build a song from your patterns A01 to F16: sections with repeats, drag to reorder, select several and loop them.
+- Set the track mutes and parameter lanes (any track parameter, LFO or FX from the Model:Cycles MIDI map) per section,
+  and a tempo change where you need one.
+- Press Play: the page is the MIDI clock and switches the Cycles' patterns with Program Change, a few steps before
+  each pattern ends. It works with the official OS and with the Modded Cycles OS. On the Cycles: CONFIG › MIDI ›
+  SYNC, turn on CLK IN and PCH IN, and set the PCH IN channel to match the page.
+- Save songs as `.json` files.
+
+**In development:** a song mode on the machine itself, so a song sent from the page plays with no computer attached.
+It is not in the firmware yet. The research and the planned SysEx protocol are in
+[notes/74](notes/74-arranger-mode-morceau.md) and [docs/arranger/SONG-PROTOCOL.md](docs/arranger/SONG-PROTOCOL.md).
 
 ## What it is
 
