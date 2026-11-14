@@ -23,7 +23,7 @@ payloads (Model-TG's code, the Syntakt engines extracted from your Syntakt file,
 (aPLib) and re-signs the container (HMAC). It prints the SHA-256 of the patched MAIN OS. For version 2.0 of this fork (with song mode) it must be:
 
 ```
-12bfe23ec9e356fd95009aa3e7b7d8be626f53078f227dba2d544e51c08b69c6
+c967fbb9b94170da9a662ae947906ae708939e20eaee625812e23ac55efa9a75
 ```
 
 The same value is the `REF_MAINOS` entry of `docs/flasher/app.js`: the web flasher refuses a build whose MAIN OS

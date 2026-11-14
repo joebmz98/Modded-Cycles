@@ -29,8 +29,8 @@ BASE = build.BASE
 DEV = HERE.parent.parent / "tweaks" / "model-cycles_OS1.13"
 STACK, RET, MSG = 0x90008000, 0x90000000, 0x42e00300
 ROUTER, TICK_HOOK = 0x400812f6, 0x400081ea
-USB_SEND, SET_MUTE, SET_TEMPO, UI_APP, PROJECT, TICK_NEXT = (
-    0x40003396, 0x4001381c, 0x4000c846, 0x400cf866, 0x4000eb90, 0x400d0b12)
+USB_SEND, SET_MUTE, SET_TEMPO, UI_APP, PROJECT, TICK_NEXT, SET_CC = (
+    0x40003396, 0x4001381c, 0x4000c846, 0x400cf866, 0x4000eb90, 0x400d0b12, 0x40082cda)
 PLAYING, STEP, CHAIN, CHAIN_LEN, PENDING = 0x40a7883c, 0x40a78840, 0x40a7863c, 0x40a78638, 0x40a78920
 PAT_BANK, PAT_SIZE = 0x406fa040, 30710
 FAKE_PROJECT, TICK_D0 = 0x42f00000, 0x1234
@@ -72,9 +72,10 @@ class Rig:
         uc.mem_write(BASE, bytes(image))
         uc.mem_map(0x90000000, 0x10000)
         uc.mem_write(RET, b"\x4e\x71" * 2)
-        self.sent, self.mutes, self.tempos, self.chain_writes = [], [], [], 0
+        self.sent, self.mutes, self.tempos, self.ccs, self.chain_writes = [], [], [], [], 0
         stubs = {USB_SEND: self._usb, SET_MUTE: self._mute, SET_TEMPO: self._tempo,
-                 UI_APP: lambda a: 0x42f00100, PROJECT: lambda a: FAKE_PROJECT, TICK_NEXT: lambda a: TICK_D0}
+                 UI_APP: lambda a: 0x42f00100, PROJECT: lambda a: FAKE_PROJECT, TICK_NEXT: lambda a: TICK_D0,
+                 SET_CC: self._cc}
         for addr, fn in stubs.items():
             uc.hook_add(UC_HOOK_CODE, self._stub(fn), begin=addr, end=addr)
         uc.hook_add(UC_HOOK_CODE, self._count_chain, begin=0x40055cd6, end=0x40055cd6)
@@ -106,6 +107,9 @@ class Rig:
     def _tempo(self, a):
         assert a[0] == FAKE_PROJECT
         self.tempos.append(a[1])
+
+    def _cc(self, a):
+        self.ccs.append((a[0], a[1], a[2], self.rd(CHAIN)))
 
     def _count_chain(self, *_):
         self.chain_writes += 1
@@ -183,7 +187,7 @@ def main():
     rig.wr(PENDING, 0)
 
     r = rig.sysex(0)
-    check(r == [0, 1, 128], f"INFO through the OS's router: {r}")
+    check(r == [0, 2, 128, 8], f"INFO through the OS's router (protocol 2, 128 rows, 8 lanes): {r}")
     check(rig.sysex(0, port=4) is None, "no reply on another port than USB (2)")
     bad = song_body("X", [(96, 1, 0, None)])
     check(rig.sysex(1, bad) == [4], "WRITE with pattern 96 refused (status 4)")
@@ -194,6 +198,13 @@ def main():
     check(r and r[0] == 0 and r[1:] == body, "READ gives back the song byte for byte")
     check(rig.tick() == TICK_D0, "song_tick returns the d0 of the call it replaced")
 
+    # lanes: track 1 Sweep (CC 18) ramps 0 -> 127 over row 2 (one loop) and holds 100 over row 3; FX Delay Feedback
+    # (CC 86, target 6) falls 64 -> 0 over row 4 (two loops); nothing in row 1
+    no = 0xff
+    lane0 = [0, 6 - 6, 18, 4, no, no, 0, 127, 100, 100, no, no]
+    lane1 = [1, 6, 86, 4, no, no, no, no, no, no, 64, 0]
+    check(rig.sysex(7, lane0) == [0] and rig.sysex(7, lane1) == [0], "two LANE messages accepted")
+    check(rig.sysex(7, [8, 0, 18, 0]) == [2], "a ninth lane is refused")
     rig.wr(PLAYING, 1)                                   # playing, so 0x40055cd6 only copies the chain
     check(rig.sysex(3, [0]) == [0], "PLAY from row 1")
     rig.tick()
@@ -210,6 +221,18 @@ def main():
     want = [[(t, (m >> t) & 1) for t in range(6)] for _, _, m, _ in rows]
     check(entries == want, f"each row sets the six mutes as it begins ({len(entries)} rows)")
     check(rig.tempos == [15600], f"tempo set once, at the row that has one: {rig.tempos}")
+    pat = lambda c: (c - PAT_BANK) // PAT_SIZE
+    sweep = [v for t, cc, v, ch in rig.ccs if (t, cc) == (0, 18)]
+    ramp = sweep[:16]
+    check(len(ramp) == 16 and ramp[0] == 0 and ramp[-1] == 127 and ramp == sorted(ramp),
+          f"row 2: Sweep on track 1 ramps 0 -> 127 across its loop, one value per step: {ramp}")
+    check(sweep[16:] == [100], f"row 3: Sweep holds 100, sent once over its three loops: {sweep[16:]}")
+    fx = [v for t, cc, v, ch in rig.ccs if (t, cc) == (6, 86)]
+    check(fx[0] == 64 and fx[-1] == 0 and fx == sorted(fx, reverse=True) and len(fx) > 16,
+          f"row 4: FX Delay Feedback falls 64 -> 0 over its two loops ({len(fx)} values)")
+    check(all(pat(ch) != 0 or (t, cc) != (0, 18) for t, cc, v, ch in rig.ccs), "no lane value in row 1, which has none")
+    plen = rig.uc.mem_read(syms["plen"], 4)
+    check(list(plen[:2]) == [LEN, LEN], f"pattern lengths learnt at their wraps: A01 {plen[0]}, A02 {plen[1]} steps")
     r = rig.sysex(5)
     check(r == [0, 1, 3, r[3], 1], f"STATUS: playing, row 4, song mode on: {r}")
 

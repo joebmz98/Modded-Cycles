@@ -57,7 +57,7 @@ DECLARED = (
     ("step-rec", "mémoire 0x4233e800..0x4233e8ff, dans le trou libre au-dessus du BSS de l'OS (0x423380b0..0x4233efff, "
                  "notes/56 §3.5.2) : les variables du step record, posées à son entrée (seul sr_active, dans un masque, "
                  "vaut 0 au démarrage)", "notes/73 §3"),
-    ("song-mode", "mémoire 0x4233d000..0x4233dbe7, dans le trou libre au-dessus du BSS de l'OS (0x423380b0..0x4233efff, "
+    ("song-mode", "mémoire 0x4233c000..0x4233d45f, dans le trou libre au-dessus du BSS de l'OS (0x423380b0..0x4233efff, "
                   "notes/56 §3.5.2) : le morceau et l'état du moteur, remis à zéro au premier usage (mot magique) ; "
                   "entrée 0x0e de la table du routeur SysEx (0x40148d08)", "notes/74 §9"),
     ("mod-settings", "octets 0x404e9b80..0x404e9b8f du bloc des réglages de l'OS (0x404e9b10, 272 o, flash 0x78000), "

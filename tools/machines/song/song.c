@@ -19,6 +19,8 @@ typedef unsigned long u32;
 
 #define SONG_P 0x0e
 #define MAX_ROWS 128
+#define MAX_LANES 8
+#define NO_VALUE 0xff                           /* a lane with no value in a row */
 #define ROW_BYTES 6
 #define MAGIC 0x534f4e47UL                      /* "SONG": the variables above the BSS are not cleared at start-up */
 
@@ -30,6 +32,7 @@ typedef unsigned long u32;
 #define SET_MUTE(pr, t, m)  ((void (*)(u32, u32, u32, u32))0x4001381c)((pr), (t), (m), 0)
 #define SET_TEMPO(pr, t)    ((void (*)(u32, u32))0x4000c846)((pr), (t))
 #define TICK_NEXT()         ((u32 (*)(void))0x400d0b12)()
+#define SET_CC(tg, cc, v)   ((void (*)(u32, u32, u32, u32, u32))0x40082cda)((tg), (cc), (v), 0, 0)   /* what a received CC calls */
 #define SEQ_PLAYING         (*(volatile u32 *)0x40a7883c)
 #define SEQ_STEP            (*(volatile u32 *)0x40a78840)
 #define PAT_BANK 0x406fa040UL
@@ -37,7 +40,7 @@ typedef unsigned long u32;
 #define KIT_BANK 0x409c9c80UL
 #define KIT_SIZE 7094UL
 
-enum { C_INFO, C_WRITE, C_READ, C_PLAY, C_STOP, C_STATUS, C_MODE, C_COUNT };
+enum { C_INFO, C_WRITE, C_READ, C_PLAY, C_STOP, C_STATUS, C_MODE, C_LANE, C_COUNT };
 enum { S_OK, S_BUSY, S_LENGTH, S_ROWS, S_PATTERN, S_NOSONG, S_UNKNOWN = 0x7f };
 
 /* the song, as sent: ver, name_len, name[16], n, loop_on, loop_start, loop_end, rows[n][6] */
@@ -53,7 +56,7 @@ void song_sysex(const u8 *msg, u32 len, u32 port);
 /* our entry in the SysEx router's table (0x40148d08[SONG_P]): id, sub-id, handlers, first and last command, base */
 struct route { u8 id, sub, pad[2]; void (*const *table)(const u8 *, u32, u32); u32 min, max, base; };
 __attribute__((section(".rodata.route"))) void (*const song_handlers[C_COUNT])(const u8 *, u32, u32) = {
-    song_sysex, song_sysex, song_sysex, song_sysex, song_sysex, song_sysex, song_sysex,
+    song_sysex, song_sysex, song_sysex, song_sysex, song_sysex, song_sysex, song_sysex, song_sysex,
 };
 __attribute__((section(".rodata.route"))) const struct route song_route = {
     SONG_P, 0x00, {0, 0}, song_handlers, 0, C_COUNT - 1, 0,
@@ -67,7 +70,14 @@ volatile u8 req_play, req_row, req_stop;        /* requests from the MIDI task t
 u8 running, row, rep, queued, ended;
 u32 last_step;
 u32 pair[2];
-u8 buf[1024];                                   /* decoded body in, then the reply out */
+u8 buf[1024];
+/* CC lanes (protocol v2): per lane its target (track 0..5, 6 = the FX channel), its CC and, per row, a start and an end
+   value (NO_VALUE: the lane does nothing in that row) */
+struct lane { u8 target, cc, v[MAX_ROWS][2]; };
+struct lane lanes[MAX_LANES];
+u8 nlanes;
+u8 sent[MAX_LANES];                             /* last value sent per lane, NO_VALUE after a row begins */
+u8 plen[96];                                    /* steps per loop of each pattern, learnt at its wraps (0: not yet) */                                   /* decoded body in, then the reply out */
 
 /* ---- 7-bit packing (Elektron's: a byte of top bits, first byte in bit 6, then up to 7 bytes) ---- */
 __attribute__((noinline, section(".text.unpack"))) static u32 unpack(const u8 *in, u32 n, u8 *out, u32 room)
@@ -107,10 +117,14 @@ __attribute__((noinline, section(".text.reply"))) static void reply(u32 port, u8
 
 __attribute__((noinline, section(".text.init"))) static void init(void)
 {
+    u32 k;
     if (magic == MAGIC)
         return;
     busy = 0; mode = 0; req_play = 0; req_stop = 0; running = 0; ended = 0;
     song.n = 0;
+    nlanes = 0;
+    for (k = 0; k < 96; k++)
+        plen[k] = 0;
     magic = MAGIC;
 }
 
@@ -137,6 +151,7 @@ __attribute__((noinline, section(".text.store"))) static u8 store(const u8 *b, u
     for (i = 0; i < b[1]; i++)
         song.name[i] = b[2 + i];
     song.n = rows;
+    nlanes = 0;
     song.loop_on = b[3 + b[1]];
     song.loop_start = b[4 + b[1]];
     song.loop_end = b[5 + b[1]];
@@ -166,14 +181,39 @@ __attribute__((noinline, section(".text.load"))) static u32 load(u8 *b)
     return o;
 }
 
+/* a lane: index, target, cc, rows, then rows x (start, end) */
+__attribute__((noinline, section(".text.store_lane"))) static u8 store_lane(const u8 *b, u32 n)
+{
+    u32 i, rows;
+    struct lane *l;
+    if (n < 4 || b[0] >= MAX_LANES || b[1] > 6 || b[2] > 127)
+        return S_LENGTH;
+    rows = b[3];
+    if (rows > MAX_ROWS || n < 4 + rows * 2)
+        return S_LENGTH;
+    busy = 1;
+    l = &lanes[b[0]];
+    l->target = b[1];
+    l->cc = b[2];
+    for (i = 0; i < MAX_ROWS; i++) {
+        l->v[i][0] = i < rows ? b[4 + 2 * i] : NO_VALUE;
+        l->v[i][1] = i < rows ? b[5 + 2 * i] : NO_VALUE;
+    }
+    if (b[0] >= nlanes)
+        nlanes = b[0] + 1;
+    sent[b[0]] = NO_VALUE;
+    busy = 0;
+    return S_OK;
+}
+
 /* INFO, STATUS and READ answer with data */
 __attribute__((noinline, section(".text.answer"))) static void answer(u8 cmd, u32 port)
 {
     u32 n = 1;
     buf[0] = S_OK;
     if (cmd == C_INFO) {
-        buf[1] = 1; buf[2] = MAX_ROWS;
-        n = 3;
+        buf[1] = 2; buf[2] = MAX_ROWS; buf[3] = MAX_LANES;
+        n = 4;
     } else if (cmd == C_STATUS) {
         buf[1] = running; buf[2] = row; buf[3] = rep; buf[4] = mode;
         n = 5;
@@ -200,6 +240,8 @@ __attribute__((noinline, section(".text.act"))) static u8 act(u8 cmd, u32 n)
     case C_STOP:
         req_stop = 1;
         return S_OK;
+    case C_LANE:
+        return n == 0xffffffffUL ? S_LENGTH : store_lane(buf, n);
     case C_MODE:
         mode = n >= 1 && buf[0];
         if (!mode)
@@ -250,10 +292,39 @@ __attribute__((noinline, section(".text.enter_row"))) static void enter_row(u32 
     row = r;
     rep = 0;
     queued = 0;
+    for (t = 0; t < MAX_LANES; t++)
+        sent[t] = NO_VALUE;
     for (t = 0; t < 6; t++)
         SET_MUTE(pr, t, (w[2] >> t) & 1);
     if (w[3] & 1)
         SET_TEMPO(pr, ((u32)w[4] << 8) | w[5]);
+}
+
+/* the lanes of the playing row, ramped from start to end across all its loops */
+__attribute__((noinline, section(".text.apply_lanes"))) static void apply_lanes(u32 step)
+{
+    u32 i, len = plen[song.rows[row][0]], reps = song.rows[row][1], pos, total, v;
+    const u8 *w;
+    if (ended)
+        return;
+    if (!len)
+        len = 16;                               /* not looped yet: 16 steps until its first wrap is seen */
+    if (step >= len)
+        step = len - 1;
+    total = reps * len - 1;
+    pos = rep * len + step;
+    if (pos > total)
+        pos = total;
+    for (i = 0; i < nlanes; i++) {
+        w = lanes[i].v[row];
+        if (w[0] == NO_VALUE)
+            continue;
+        v = total ? (w[0] * (total - pos) + w[1] * pos) / total : w[0];
+        if (v != sent[i]) {
+            SET_CC(lanes[i].target, lanes[i].cc, v);
+            sent[i] = v;
+        }
+    }
 }
 
 /* the row's last loop has begun: queue what follows it, once */
@@ -311,6 +382,7 @@ __attribute__((section(".text.song_tick_c"))) void song_tick_c(void)
         enter_row(row);
         last_step = step;
     } else if (step < last_step && !ended) {     /* the pattern looped */
+        plen[song.rows[row][0]] = last_step + 1 > 255 ? 255 : last_step + 1;
         if (++rep >= song.rows[row][1]) {
             nx = next_row(row);
             if (nx < 0)
@@ -321,6 +393,7 @@ __attribute__((section(".text.song_tick_c"))) void song_tick_c(void)
     }
     last_step = step;
     queue_next();
+    apply_lanes(step);
 }
 
 __attribute__((section(".text.song_tick"))) u32 song_tick(void)

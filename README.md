@@ -33,7 +33,7 @@ This fork adds the **Cycles Arranger**, a song arranger for the Model:Cycles tha
 - Save songs as `.json` files.
 
 **Song mode on the machine (experimental):** with this fork's OS, **Send song** puts the song in the Model:Cycles and
-it plays it with no computer attached: patterns, repeats, mutes, tempo and the loop. The song is kept until power-off
+it plays it with no computer attached: patterns, repeats, mutes, tempo, up to 8 CC lanes and the loop. The song is kept until power-off
 for now; saving it with the project and a song page on the machine come next. Proven in the emulator, not yet tried
 on a Model:Cycles. Details: [the guide](https://joebmz98.github.io/Modded-Cycles/guide/#song-mode),
 [notes/74](notes/74-arranger-mode-morceau.md), [the protocol](docs/arranger/SONG-PROTOCOL.md).
@@ -67,7 +67,7 @@ sends it to the machine over USB. Going back to the official firmware is one cli
 | **LFO 2, 3, 4** | Three more LFOs per track: on the LFO page, press `LFO` again. LFO 2 is saved with the sound and can be p-locked. | After DavidCaruso | ✅ Tested |
 | **Arpeggiator** | Hold several notes with `RETRIG` and they arpeggiate; `FUNC` + `RETRIG` sets direction and range, saved with the pattern. | This project | ✅ Tested |
 | **Step record** | Sequencer stopped, press `REC` twice: each note you play (TRIG keys, pads, MIDI) lands on the blinking step. `PLAY` skips, `STOP` goes back; knobs turned first become p-locks. | This project | ✅ Tested |
-| **Song mode** | Arrange a song in the [Cycles Arranger](https://joebmz98.github.io/Modded-Cycles/arranger/), send it over USB, and the Cycles plays it by itself: patterns, repeats, mutes, tempo, a loop. Kept until power-off. | This fork | 🧪 Experimental |
+| **Song mode** | Arrange a song in the [Cycles Arranger](https://joebmz98.github.io/Modded-Cycles/arranger/), send it over USB, and the Cycles plays it by itself: patterns, repeats, mutes, tempo, CC lanes, a loop. Kept until power-off. | This fork | 🧪 Experimental |
 | **Easier trig removal** | A quick press on a step that holds a trig removes it, instead of opening it as a hold. | This project | ✅ Tested |
 | **Trig preview** | Sequencer stopped or paused: hold a step and press `PAGE` to hear it. | drumkilla, via Model-TG | ✅ Tested |
 | **Tempo up to 546 BPM** | The `TEMPO` knob, tap tempo, MIDI clock and saved projects go past 300 BPM. | This project | ✅ Tested |

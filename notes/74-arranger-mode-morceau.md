@@ -209,3 +209,50 @@ pas avec des longueurs par piste et des échelles, le mute et le tempo réels, l
 
 `docs/arranger/` parle ce protocole (`songMsg`, `songReply`) ; le faux appareil répond comme le firmware. Identify
 garde le ping d'Elektron Transfer (produit `0x10`), qui marche sur tout firmware.
+
+## 10. Lignes de CC dans le mode morceau, protocole v2 (14/11/2026, suite)
+
+Demandé par Joe : que la machine joue aussi les automations de l'arrangeur, et choisir piste et paramètre de chaque
+ligne dans l'application.
+
+### 10.1 Le chemin d'un CC reçu
+
+- `[FAIT]` Tâche MIDI, gestionnaire CC `0x40080ac4` : canal = canal FX (`0x40a7011c`) → `0x40082cda(6, cc, valeur,
+  auto, 0)` ; puis pour chaque piste dont le canal (`0x40a70104[piste]`) correspond → `0x40082cda(piste, cc, valeur,
+  auto, 0)`. `auto` = le canal est le canal AUTO (`0x40a70100`).
+- `[FAIT]` `0x40082cda` normalise ses deux derniers arguments et saute dans l'aiguillage des CC `0x400829c6`
+  (le mute du CC 94 en `0x40082c70`, §9.1). Le mode morceau l'appelle avec `auto = 0` : chaque paramètre de la table
+  MIDI du Model:Cycles se règle comme depuis un contrôleur, cible 6 = delay et reverb.
+
+### 10.2 Ce qui change dans le tweak
+
+- Commande 7 LANE : `index 0..7, cible 0..6, cc, lignes, puis (début, fin)` par ligne, `FF` = rien. WRITE efface les
+  lignes. INFO répond `0, 2, 128, 8`.
+- `apply_lanes` (tick) : position dans la ligne = `boucle × longueur + pas`, sur `répétitions × longueur − 1` ;
+  valeur interpolée, envoyée seulement quand elle change ; au début d'une ligne la première valeur est renvoyée
+  (le changement de pattern a rechargé les sons).
+- La longueur d'un pattern n'est pas lue dans l'OS : elle est **apprise** au retour au début (`dernier pas + 1`,
+  table `plen[96]`) ; avant la première boucle d'un pattern, 16 pas. `[À FAIRE]` La lire dans le pattern (champ du
+  séquenceur comparé en `0x40055626`) pour la première boucle.
+- Les valeurs agissent comme un potard : rien n'est écrit dans le pattern, et rien n'est rétabli à l'arrêt (le pattern
+  suivant ramène ses sons). Choix de l'étape 1, à revoir avec l'enregistrement dans le projet.
+- Place : onze masques (s'ajoutent deux 34×34 `0x4018af88`, `0x4018b1a8` et un 48×22 `0x40152d38`), 2 572 o de
+  code ; 5 216 o de variables, désormais en `0x4233c000..0x4233d45f` (les chiffres du §9.2 sont ceux de la v1).
+
+### 10.3 Preuve
+
+`tools/emu/test_song.py` relève aussi les appels de `0x40082cda` : 26 contrôles, seul et avec l'OS. `[FAIT en
+émulation]` :
+
+```
+PASS row 2: Sweep on track 1 ramps 0 -> 127 across its loop, one value per step: [0, 8, 16, …, 118, 127]
+PASS row 3: Sweep holds 100, sent once over its three loops: [100]
+PASS row 4: FX Delay Feedback falls 64 -> 0 over its two loops (32 values)
+PASS pattern lengths learnt at their wraps: A01 16, A02 16 steps
+```
+
+### 10.4 Application
+
+Un clic sur le nom d'une ligne (frise ou pastilles de l'inspecteur) la sélectionne : piste (1 à 6, FX, ou canal
+libre pour la lecture en direct seulement) et paramètre (paramètres de piste et LFO, ou ceux du FX) ; « + CC lane »
+en ajoute une, × la retire. Send song envoie le morceau puis une commande LANE par ligne (8 au plus).

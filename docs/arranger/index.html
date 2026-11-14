@@ -119,7 +119,16 @@ aside,section{min-height:0}
 .row{display:flex;gap:6px;flex-wrap:wrap}
 .lanecfg2{display:flex;gap:4px;align-items:center}
 .lanecfg2 select{flex:1}
-.lanecfg2 select:first-child{flex:0 0 108px}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chips button{font-size:12px;padding:3px 8px;border-radius:999px}
+.chips button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.rowh.lanehdr{cursor:pointer;padding-right:2px}
+.rowh.lanehdr:hover{color:var(--ink)}
+.rowh.lanehdr.lsel{color:var(--ink);background:#2a2112;box-shadow:inset 3px 0 0 var(--accent)}
+.rowh.lanehdr .lname{flex:1;overflow:hidden;text-overflow:ellipsis}
+.rowh.lanehdr .lx{padding:0 5px;font-size:13px;line-height:16px;border-color:transparent;background:transparent;color:var(--ink-dim)}
+.rowh.lanehdr .lx:hover{color:var(--warn);border-color:var(--line)}
+.rowb.r-lane.lsel{background:#1a1610}
 .log{background:var(--well);border:1px solid var(--line);border-radius:4px;font-family:var(--font-num);font-size:11px;padding:6px;height:150px;overflow:auto;white-space:pre-wrap;color:var(--ink-dim)}
 .log .in{color:var(--play)} .log .out{color:var(--accent)} .log .err{color:var(--warn)}
 details{border-top:1px solid var(--line);padding-top:10px}
@@ -175,7 +184,7 @@ dialog textarea{width:100%;height:240px;background:var(--well);color:var(--ink);
       <button id="btnDel" title="Delete the selected sections (Delete)">Delete</button>
       <button id="btnUndo" title="Undo (Ctrl+Z)">Undo</button>
       <button id="btnLoopSet" title="Loop the selected sections (L). Shift-click to select several.">Loop selection</button>
-      <button id="btnAddLane">Add CC lane</button>
+      <button id="btnAddLane" title="Add a CC lane, then pick its track and parameter">+ CC lane</button>
       <div class="spacer"></div>
       <label class="inl" for="zoom">Zoom <input id="zoom" type="range" min="2" max="14" value="5"></label>
     </div>
@@ -202,7 +211,7 @@ dialog textarea{width:100%;height:240px;background:var(--well);color:var(--ink);
       <h2>Song mode on the device (fork firmware)</h2>
       <div class="fr"><span>Target</span><select id="devTarget"><option value="mock">Mock device (simulated, no hardware)</option><option value="midi">Model:Cycles over MIDI</option></select></div>
       <div class="fr"><span>Messages</span><span class="num hint">F0 00 20 3C 0E 00 …</span></div>
-      <p class="hint" id="mockNote" style="margin:0;color:var(--accent)">Simulated: nothing is sent to your Cycles. Real song mode needs the fork firmware, which doesn't exist yet.</p>
+      <p class="hint" id="mockNote" style="margin:0;color:var(--accent)">Simulated: nothing is sent to your Cycles. Choose Model:Cycles over MIDI to use song mode on the machine (this fork's OS).</p>
       <div class="row">
         <button id="btnPing">Identify</button>
         <button id="btnUpload" class="primary">Send song</button>
@@ -213,7 +222,7 @@ dialog textarea{width:100%;height:240px;background:var(--well);color:var(--ink);
       </div>
       <div class="log" id="log" aria-live="polite"></div>
       <details>
-        <summary>Song protocol v1</summary>
+        <summary>Song protocol v2</summary>
         <div class="spec" id="spec"></div>
       </details>
     </div>
@@ -263,6 +272,15 @@ function request(seq, cmd, body = []){ return [(seq >> 8) & 0xFF, seq & 0xFF, 0,
    Replies: the same header, cmd | 0x40, then the packed body, status first. */
 const SONG_P = 0x0E;
 function songMsg(cmd, body = []){ return [0xF0, 0x00, 0x20, 0x3C, SONG_P, 0x00, cmd, ...encode7(body), 0xF7]; }
+/* one lane for the device: index, target (track 0..5, 6 = FX), cc, rows, then per row start and end (0xFF = none) */
+function encodeLane(song, lane, index){
+  const target = lane.target === 'fx' ? 6 : /^t[1-6]$/.test(lane.target || '') ? +lane.target[1] - 1 : -1;
+  if (target < 0) return null;
+  const rows = song.blocks.slice(0, MAX_ROWS);
+  const out = [index, target, lane.cc & 0x7F, rows.length];
+  for (const b of rows){ const v = lane.values[b.id]; out.push(v ? v.a & 0x7F : 0xFF, v ? v.b & 0x7F : 0xFF); }
+  return out;
+}
 function songReply(msg){
   const m = Array.from(msg);
   if (m.length < 8 || m[0] !== 0xF0 || m[1] !== 0 || m[2] !== 0x20 || m[3] !== 0x3C || m[4] !== SONG_P || m[5] !== 0 || !(m[6] & 0x40) || m[m.length-1] !== 0xF7) return null;
@@ -270,7 +288,8 @@ function songReply(msg){
 }
 
 /* Song commands, offsets from a configurable base (default 0x70). */
-const CMD = {INFO:0, WRITE:1, READ:2, PLAY:3, STOP:4, STATUS:5, MODE:6};
+const CMD = {INFO:0, WRITE:1, READ:2, PLAY:3, STOP:4, STATUS:5, MODE:6, LANE:7};
+const MAX_LANES = 8;
 const STATUS_TEXT = {0:'ok', 1:'busy', 2:'bad length', 3:'too many rows', 4:'bad pattern', 5:'no song', 0x7F:'unknown command'};
 
 /* Effective tempo carries forward from the last section that sets one. */
@@ -311,10 +330,13 @@ class MockDevice {
   /* takes a command and its decoded body, returns the decoded reply body (status first), like the firmware */
   handle(cmd, body, ctx){
     switch (cmd){
-      case CMD.INFO:  return [0, 1, MAX_ROWS];
+      case CMD.INFO:  return [0, 2, MAX_ROWS, MAX_LANES];
+      case CMD.LANE:
+        if (!this.song || body.length < 4 || body[0] >= MAX_LANES || body[1] > 6 || body.length < 4 + 2 * body[3]) return [2];
+        (this.lanes = this.lanes || [])[body[0]] = body.slice(1); return [0];
       case CMD.WRITE:
         try { const s = decodeSong(body); if (s.blocks.length > MAX_ROWS) return [3];
-              if (s.blocks.some(b => b.pat > 95)) return [4]; this.song = s; this.mode = 1; return [0]; }
+              if (s.blocks.some(b => b.pat > 95)) return [4]; this.song = s; this.lanes = []; this.mode = 1; return [0]; }
         catch (e) { return [2]; }
       case CMD.READ:  return this.song ? [0, ...encodeSong({...this.song, bpm: 120, patterns: {}})] : [5];
       case CMD.PLAY: {
@@ -398,7 +420,7 @@ function pulseEvents(song, plan, si, pulse, cfg, prevSent){
   }
   return ev;
 }
-if (typeof module !== 'undefined') module.exports = {songMsg, songReply, SONG_P, laneChannel, pcLead, CC_MAP, encode7, decode7, frame, unframe, request, encodeSong, decodeSong, MockDevice, buildPlan, nextIndex, pulseEvents, songSeconds, effectiveTempos, patName, CMD};
+if (typeof module !== 'undefined') module.exports = {encodeLane, songMsg, songReply, SONG_P, laneChannel, pcLead, CC_MAP, encode7, decode7, frame, unframe, request, encodeSong, decodeSong, MockDevice, buildPlan, nextIndex, pulseEvents, songSeconds, effectiveTempos, patName, CMD};
 </script>
 
 <script>
@@ -438,7 +460,7 @@ let sel = 0, selEnd = 0, history = [], pxStep = 5;
 const selLo = () => Math.min(sel, selEnd), selHi = () => Math.max(sel, selEnd);
 const inSel = i => i >= selLo() && i <= selHi();
 function select(i, extend){ i = Math.max(0, Math.min(song.blocks.length - 1, i)); if (extend) selEnd = i; else sel = selEnd = i; }
-const ui = {midi: null, out: null, inp: null, playing: false, devRow: -1};
+const ui = {midi: null, out: null, inp: null, playing: false, devRow: -1, selLane: null};
 
 function load(){
   try { const s = JSON.parse(localStorage.getItem('cycles-arranger') || 'null'); if (s && s.blocks) { reid(s); return s; } } catch (e) {}
@@ -539,7 +561,8 @@ function render(){
   }
   // CC lanes
   song.lanes.forEach(l => {
-    h += `<div class="rowh r-lane" title="${escapeHtml(laneLabel(l))}, CC ${l.cc} on channel ${laneChannel(l, song.midi)}"><span class="sw" style="background:var(--accent)"></span>${escapeHtml(laneLabel(l))}</div><div class="rowb r-lane">`;
+    const ls = ui.selLane === l.id ? 'lsel' : '';
+    h += `<div class="rowh r-lane lanehdr ${ls}" data-lane="${l.id}" role="button" tabindex="0" title="${escapeHtml(laneLabel(l))}: CC ${l.cc} on channel ${laneChannel(l, song.midi)}. Click to choose its track and parameter."><span class="sw" style="background:var(--accent)"></span><span class="lname">${escapeHtml(laneLabel(l))}</span><button class="lx" data-lanex="${l.id}" title="Remove this lane" aria-label="Remove lane ${escapeHtml(laneLabel(l))}">×</button></div><div class="rowb r-lane ${ls}">`;
     song.blocks.forEach((b, i) => {
       const s = plan[i], v = l.values[b.id], w = s.steps*pxStep;
       let svg = '';
@@ -576,6 +599,13 @@ $('tlgrid').addEventListener('pointerdown', e => {
   }
   if (mc){ const [i, t] = mc.dataset.m.split(',').map(Number); commit(); song.blocks[i].mutes[t] = !song.blocks[i].mutes[t]; if (!inSel(i)) select(i, false); changed(); return; }
   if (lc){ e.preventDefault(); startLaneDrag(lc, e); }
+});
+$('tlgrid').addEventListener('click', e => {
+  const x = e.target.closest('[data-lanex]'); if (x){ e.stopPropagation(); removeLane(x.dataset.lanex); return; }
+  const h = e.target.closest('[data-lane]'); if (h){ ui.selLane = ui.selLane === h.dataset.lane ? null : h.dataset.lane; render(); }
+});
+$('tlgrid').addEventListener('keydown', e => {
+  const h = e.target.closest('[data-lane]'); if (h && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); e.stopPropagation(); ui.selLane = ui.selLane === h.dataset.lane ? null : h.dataset.lane; render(); }
 });
 $('tlgrid').addEventListener('dblclick', e => {
   const lc = e.target.closest('.lcell'); if (!lc) return;
@@ -639,7 +669,7 @@ function startMoveDrag(lo, hi, grabbed, e){
 function startLaneDrag(cell, e){
   const [lid, i] = cell.dataset.l.split(','); const l = song.lanes.find(x => x.id === lid); const b = song.blocks[+i];
   const r = cell.getBoundingClientRect(); const right = e.clientX > r.left + r.width/2; const both = e.shiftKey;
-  commit(); if (!inSel(+i)) select(+i, false);
+  commit(); if (!inSel(+i)) select(+i, false); ui.selLane = lid;
   const setv = ev => {
     const v = Math.max(0, Math.min(127, Math.round((r.bottom - ev.clientY) / r.height * 127)));
     const cur = l.values[b.id] || {a: v, b: v};
@@ -661,18 +691,44 @@ $('tlwrap').addEventListener('drop', e => {
 
 /* ---------- inspector ---------- */
 function laneLabel(l){ const t = l.target === 'fx' ? 'FX' : /^t\d$/.test(l.target) ? 'T' + l.target[1] : 'ch' + l.ch; return `${t} ${ccName(l.cc)}`; }
+const LANE_TARGETS = ['t1','t2','t3','t4','t5','t6','fx','custom'];
+const targetName = t => t === 'fx' ? 'FX (delay, reverb)' : t === 'custom' ? 'Custom channel (live only)' : 'Track ' + t[1];
 function laneEditor(){
-  if (!song.lanes.length) return '<p class="hint" style="margin:0">No lanes. Lanes send CCs during live playback only.</p>';
-  const ccOpts = l => CC_MAP.map(([g, list]) => `<optgroup label="${g}">${list.map(([n, name]) => `<option value="${n}" ${n===l.cc?'selected':''}>${name} (${n})</option>`).join('')}</optgroup>`).join('')
-    + (CC_MAP.some(([, list]) => list.some(([n]) => n === l.cc)) ? '' : `<option value="${l.cc}" selected>CC ${l.cc}</option>`);
-  const tOpts = l => ['t1','t2','t3','t4','t5','t6','fx','custom'].map(t => `<option value="${t}" ${t===l.target?'selected':''}>${t==='fx'?'FX (auto ch)':t==='custom'?'Custom ch':'Track '+t[1]}</option>`).join('');
-  return song.lanes.map(l => `<div class="lanecfg2"><select data-lt="${l.id}" aria-label="Lane target">${tOpts(l)}</select><select data-lc="${l.id}" aria-label="Lane parameter">${ccOpts(l)}</select>${l.target==='custom'?`<input data-lh="${l.id}" type="number" min="1" max="16" value="${l.ch}" aria-label="Lane channel" style="width:48px">`:''}<button data-ld="${l.id}" title="Remove lane" aria-label="Remove lane">×</button></div>`).join('');
+  const add = `<button data-ladd title="Add a CC lane">+ Lane</button>`;
+  if (!song.lanes.length) return `<div class="chips">${add}</div><p class="hint" style="margin:0">No lanes yet. Add one, then drag up and down in its row on the timeline to set values per section.</p>`;
+  const chips = song.lanes.map(l => `<button data-lsel="${l.id}" class="${ui.selLane===l.id?'on':''}" aria-pressed="${ui.selLane===l.id}">${escapeHtml(laneLabel(l))}</button>`).join('');
+  const l = song.lanes.find(x => x.id === ui.selLane);
+  let ed = '<p class="hint" style="margin:0">Click a lane (here or its name on the timeline) to choose its track and parameter.</p>';
+  if (l){
+    const tOpts = LANE_TARGETS.map(t => `<option value="${t}" ${t===l.target?'selected':''}>${targetName(t)}</option>`).join('');
+    const groups = l.target === 'fx' ? CC_MAP.filter(([g]) => g === 'FX') : l.target === 'custom' ? CC_MAP : CC_MAP.filter(([g]) => g !== 'FX');
+    const known = groups.some(([, list]) => list.some(([n]) => n === l.cc));
+    const pOpts = groups.map(([g, list]) => `<optgroup label="${g}">${list.map(([n, name]) => `<option value="${n}" ${n===l.cc?'selected':''}>${name} (CC ${n})</option>`).join('')}</optgroup>`).join('')
+      + (known ? '' : `<option value="${l.cc}" selected>CC ${l.cc}</option>`);
+    const set = Object.keys(l.values).filter(id => song.blocks.some(b => b.id === id)).length;
+    ed = `<div class="fr"><span>Track</span><select id="lnTarget" aria-label="Lane track">${tOpts}</select></div>
+      <div class="fr"><span>Parameter</span><select id="lnParam" aria-label="Lane parameter">${pOpts}</select></div>
+      ${l.target === 'custom' ? `<div class="fr"><span>MIDI channel</span><input id="lnCh" type="number" min="1" max="16" value="${l.ch}"></div>` : ''}
+      <p class="hint" style="margin:0">${set} of ${song.blocks.length} sections have values. ${l.target === 'custom' ? 'A custom channel plays in live playback only; the Model:Cycles song mode skips it.' : 'Played by live playback and by song mode on the device.'}</p>
+      <div class="row"><button id="lnClear">Clear values</button><button id="lnRemove">Remove lane</button><button id="lnDone">Done</button></div>`;
+  }
+  const over = song.lanes.filter(x => x.target !== 'custom').length > 8 ? '<p class="hint" style="margin:0;color:var(--warn)">The device plays the first 8 lanes; the others play in live playback only.</p>' : '';
+  return `<div class="chips">${chips}${add}</div>${ed}${over}`;
 }
+function addLane(){ commit(); const l = {id: 'l' + Date.now().toString(36), cc: 95, target: 't1', ch: 1, values: {}}; song.lanes.push(l); ui.selLane = l.id; changed(); }
+function removeLane(id){ commit(); song.lanes = song.lanes.filter(l => l.id !== id); if (ui.selLane === id) ui.selLane = null; changed(); }
 function bindLaneEditor(el){
-  el.querySelectorAll('[data-lt]').forEach(n => n.addEventListener('change', () => { commit(); const l = song.lanes.find(x=>x.id===n.dataset.lt); l.target = n.value; if (FX_CCS.has(l.cc) !== (n.value === 'fx') && n.value !== 'custom') l.cc = n.value === 'fx' ? 86 : 18; changed(); }));
-  el.querySelectorAll('[data-lc]').forEach(n => n.addEventListener('change', () => { commit(); const l = song.lanes.find(x=>x.id===n.dataset.lc); l.cc = +n.value; if (FX_CCS.has(l.cc) && l.target !== 'custom') l.target = 'fx'; else if (!FX_CCS.has(l.cc) && l.target === 'fx') l.target = 't1'; changed(); }));
-  el.querySelectorAll('[data-lh]').forEach(n => n.addEventListener('change', () => { commit(); song.lanes.find(l=>l.id===n.dataset.lh).ch = clampInt(n.value,1,16,1); changed(); }));
-  el.querySelectorAll('[data-ld]').forEach(n => n.addEventListener('click', () => { commit(); song.lanes = song.lanes.filter(l=>l.id!==n.dataset.ld); changed(); }));
+  el.querySelectorAll('[data-lsel]').forEach(n => n.addEventListener('click', () => { ui.selLane = ui.selLane === n.dataset.lsel ? null : n.dataset.lsel; render(); }));
+  el.querySelectorAll('[data-ladd]').forEach(n => n.addEventListener('click', addLane));
+  const l = song.lanes.find(x => x.id === ui.selLane); if (!l) return;
+  const on = (id, ev, f) => { const n = el.querySelector('#' + id); if (n) n.addEventListener(ev, f); };
+  on('lnTarget', 'change', e => { commit(); const t = e.target.value; const wasFx = FX_CCS.has(l.cc); l.target = t;
+    if (t === 'fx' && !wasFx) l.cc = 86; else if (/^t\d$/.test(t) && wasFx) l.cc = 95; changed(); });
+  on('lnParam', 'change', e => { commit(); l.cc = +e.target.value; changed(); });
+  on('lnCh', 'change', e => { commit(); l.ch = clampInt(e.target.value, 1, 16, 1); changed(); });
+  on('lnClear', 'click', () => { commit(); l.values = {}; changed(); });
+  on('lnRemove', 'click', () => removeLane(l.id));
+  on('lnDone', 'click', () => { ui.selLane = null; render(); });
 }
 function renderInspector(){
   const el = $('inspBlock');
@@ -771,7 +827,7 @@ function undo(){ const s = history.pop(); if (!s) return; song = JSON.parse(s); 
 $('btnDup').onclick = dup; $('btnDel').onclick = del; $('btnUndo').onclick = undo;
 $('btnLoopSet').onclick = () => { commit(); song.loop = {on: true, start: selLo(), end: selHi()}; changed(); toast(selLo() === selHi() ? 'Looping section ' + (sel+1) : `Looping sections ${selLo()+1}–${selHi()+1}`); };
 $('btnLoop').onclick = () => { commit(); song.loop.on = !song.loop.on; changed(); };
-$('btnAddLane').onclick = () => { commit(); song.lanes.push({id: 'l' + Date.now().toString(36), cc: 95, target: 't1', ch: 1, values: {}}); changed(); };
+$('btnAddLane').onclick = addLane;
 addEventListener('keydown', e => {
   if (e.target.matches('input,select,textarea')) return;
   if (e.code === 'Space'){ e.preventDefault(); ui.playing ? stop() : play(); }
@@ -907,7 +963,7 @@ $('btnPlay').onclick = () => play(); $('btnStop').onclick = () => stop();
 const mock = new MockDevice();
 const mockCtx = {bpm: () => song.bpm, len: p => patLen(song, p)};
 let seq = 0; const pending = new Map(), xferPending = new Map();
-function logLine(s, cls){ const l = $('log'); if (/^[→←]/.test(s) && $('devTarget').value === 'mock' && /cmd|Model|OS|song|play|stop|read|device/.test(s) && !/PC |Cycles on/.test(s)) s = '[MOCK] ' + s; const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = s; l.appendChild(d); l.scrollTop = l.scrollHeight; while (l.childElementCount > 200) l.firstChild.remove(); }
+function logLine(s, cls){ const l = $('log'); if (/^[→←]/.test(s) && $('devTarget').value === 'mock' && /cmd|Model|OS|song|lane|play|stop|read|device/.test(s) && !/PC |Cycles on/.test(s)) s = '[MOCK] ' + s; const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = s; l.appendChild(d); l.scrollTop = l.scrollHeight; while (l.childElementCount > 200) l.firstChild.remove(); }
 const hex = a => Array.from(a, b => b.toString(16).padStart(2,'0')).join(' ');
 function onMidiIn(ev){
   const d = ev.data;
@@ -964,11 +1020,20 @@ $('btnPing').onclick = async () => {
     if (vs) logLine(`← OS ${vs}`, 'in');
   } catch (e) { logLine(e.message, 'err'); return; }
   const info = await devCmd(CMD.INFO, [], 'song mode');
-  if (info) logLine(`  song mode v${info[1]}, up to ${info[2]} rows`, 'in');
+  if (info) logLine(`  song mode v${info[1]}, up to ${info[2]} rows${info[1] >= 2 ? `, ${info[3]} CC lanes` : ' (no CC lanes: update the OS)'}`, 'in');
 };
 $('btnUpload').onclick = async () => {
   if (song.blocks.length > MAX_ROWS){ logLine(`Only the first ${MAX_ROWS} sections are sent.`, 'err'); }
-  const body = encodeSong(song); await devCmd(CMD.WRITE, body, `song "${song.name}", ${Math.min(song.blocks.length, MAX_ROWS)} rows`);
+  const body = encodeSong(song);
+  if (!await devCmd(CMD.WRITE, body, `song "${song.name}", ${Math.min(song.blocks.length, MAX_ROWS)} rows`)) return;
+  let k = 0;
+  for (const l of song.lanes){
+    const m = encodeLane(song, l, k);
+    if (!m){ logLine(`  ${laneLabel(l)}: custom channel, live playback only`, ''); continue; }
+    if (k >= MAX_LANES){ logLine(`  ${laneLabel(l)}: over ${MAX_LANES} lanes, live playback only`, 'err'); continue; }
+    if (!await devCmd(CMD.LANE, m, `lane ${k + 1}, ${laneLabel(l)}`)) return;
+    k++;
+  }
 };
 $('btnDevPlay').onclick = async () => {
   if (await devCmd(CMD.PLAY, [selLo()], 'armed from row ' + (selLo()+1))){
@@ -1003,13 +1068,14 @@ function pollDevice(){
 $('spec').innerHTML = `
 <p>Messages: <code>F0 00 20 3C 0E 00 cmd</code> + 7-bit packed body + <code>F7</code>. Replies (USB only): the same header with <code>cmd | 0x40</code>, then the packed body, status first. The fork's firmware routes product <code>0E</code> of the OS's SysEx router to song mode.</p>
 <table>
-<tr><td><code>0</code> INFO</td><td>→ <code>status, protoVer=1, maxRows=128</code></td></tr>
+<tr><td><code>0</code> INFO</td><td>→ <code>status, protoVer=2, maxRows=128, maxLanes=8</code></td></tr>
 <tr><td><code>1</code> WRITE</td><td>body = song (below) → <code>status</code>; turns song mode on</td></tr>
 <tr><td><code>2</code> READ</td><td>→ <code>status, song</code></td></tr>
 <tr><td><code>3</code> PLAY</td><td><code>row</code> → <code>status</code>; arms the song at that row, PLAY on the machine starts it</td></tr>
 <tr><td><code>4</code> STOP</td><td>→ <code>status</code>; song mode off</td></tr>
 <tr><td><code>5</code> STATUS</td><td>→ <code>status, playing, row, repeat, songMode</code></td></tr>
 <tr><td><code>6</code> MODE</td><td><code>0|1</code> → <code>status</code></td></tr>
+<tr><td><code>7</code> LANE</td><td><code>index 0–7, target (track 0–5, 6 = FX), cc, rows, then per row start, end (FF = none)</code> → <code>status</code>; WRITE clears the lanes</td></tr>
 </table>
 <p>Song: <code>ver=1, nameLen, name…, rows, loopOn, loopStart, loopEnd</code>, then 6 bytes per row:
 <code>pattern 0–95, repeats 1–255, muteMask (bit n = track n+1), flags (bit0 tempo), tempo u16 BE in 1/120 BPM</code>.

@@ -578,7 +578,8 @@ test plan of PR #101 (notes/73 §7). Also checked in the emulator on the OS's ow
 
 **What it does.** A song arranged in the Cycles Arranger (the song arranger page, `docs/arranger/`) is sent to the
 Model:Cycles over USB, and the machine plays it by itself: each row's pattern for its number of loops, switching on
-time at the end of the previous one, with the row's track mutes and tempo, and a loop range.
+time at the end of the previous one, with the row's track mutes and tempo, up to 8 CC lanes ramping across each row,
+and a loop range.
 
 **How to use it** (guide):
 
@@ -591,7 +592,10 @@ time at the end of the previous one, with the row's track mutes and tempo, and a
 
 - The song is kept in RAM: it is lost at power-off (send it again). Up to 128 rows. Saving it with the project and a
   song page on the machine are planned (notes/74).
-- CC lanes are not sent to the machine; they play only in the arranger's live playback.
+- CC lanes: up to 8, each on a track (1-6) or the FX channel, with a CC of the Model:Cycles map. Per row a start and an
+  end value, ramped across all the row's loops, one value per step, sent as a received CC would be. They act like a
+  knob: not written into the pattern; the next pattern reloads its sounds. A pattern's length is learnt at its first
+  loop (16 steps assumed before). Lanes on a custom MIDI channel play in the arranger's live playback only.
 - Without a loop, the last row's pattern keeps looping at the end.
 - The pattern changes go through the same path as an incoming Program Change, written one loop ahead. The loop count is
   read 30 times a second: a pattern shorter than about 33 ms (one step above 450 BPM) can be missed.

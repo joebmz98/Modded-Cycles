@@ -44,15 +44,18 @@ CAVES = {
     ".cave_f": (0x40185f48, 272),
     ".cave_g": (0x40186238, 272),
     ".cave_h": (0x40189618, 272),
+    ".cave_i": (0x4018af88, 272),
+    ".cave_j": (0x4018b1a8, 272),
+    ".cave_k": (0x40152d38, 192),
 }
-RAM = (0x4233d000, 0x4233e000)                  # variables (.ram of song.ld), below step-rec's 0x4233e800
+RAM = (0x4233c000, 0x4233e000)                  # variables (.ram of song.ld), below step-rec's 0x4233e800
 # (address, stock bytes, symbol, opcode, role)
 HOOKS = (
     (0x400081ea, "4eb9400d0b12", "song_tick", 0x4eb9,
      "interface tick, 30 Hz (message 5): jsr 0x400d0b12 -> jsr song_tick, which calls it and returns its d0"),
 )
 SYMBOLS = ("song_sysex", "song_tick", "song_tick_c", "song_route", "song", "magic", "mode", "running", "row", "rep",
-           "busy", "req_play", "req_stop", "pair", "buf")   # for tools/emu/test_song.py
+           "busy", "req_play", "req_stop", "pair", "buf", "lanes", "nlanes", "plen")   # for tools/emu/test_song.py
 
 
 def compile_song():
@@ -114,14 +117,16 @@ def build_tweak(stock):
     tweak = {
         "id": "song-mode",
         "order": 93,
-        "name": "Mode morceau (étape 1) : un morceau envoyé par SysEx, joué par la machine",
+        "name": "Mode morceau (étape 1) : un morceau envoyé par SysEx, joué par la machine, avec ses lignes de CC",
         "description": [
             "Le Cycles Arranger (docs/arranger/) envoie un morceau (lignes : pattern, répétitions, mutes, tempo) par",
             f"SysEx (F0 00 20 3C {SONG_P:02X} 00 commande …, docs/arranger/SONG-PROTOCOL.md). Séquenceur en lecture,",
             "le moteur compte les boucles du pattern et écrit la chaîne de patterns (0x40055cd6, ce qu'appelle un",
             "Program Change reçu) une boucle à l'avance ; au début de chaque ligne, il pose ses mutes et son tempo. Le",
-            "morceau est en mémoire vive (étape 1) : perdu à l'extinction.",
-            f"Code dans huit masques de sprites libérés (tools/sprites.py) : {total} o ; {ram} o de variables en",
+            "morceau est en mémoire vive (étape 1) : perdu à l'extinction. Lignes de CC (protocole v2, commande 7) :",
+            "par ligne une valeur de début et de fin, en rampe sur toutes ses boucles, appliquée par 0x40082cda (ce",
+            "qu'appelle un CC reçu) ; la longueur de chaque pattern est apprise à son premier retour au début.",
+            f"Code dans onze masques de sprites libérés (tools/sprites.py) : {total} o ; {ram} o de variables en",
             f"{RAM[0]:#x}, au-dessus du BSS. Entrée {SONG_P:#x} de la table du routeur SysEx ({ROUTER_TABLE:#x}).",
             "Généré par tools/gen_song.py, notes/74.",
         ],

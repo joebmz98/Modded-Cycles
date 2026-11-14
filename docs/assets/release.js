@@ -8,6 +8,8 @@ window.MC_RELEASES = [
       fr: "Nouveau dans ce fork, le mode morceau (expérimental) : arrangez un morceau dans le Cycles Arranger (la nouvelle page arrangeur de morceaux), envoyez-le par USB, et le Model:Cycles le joue tout seul : chaque pattern pendant son nombre de boucles, en changeant à temps, avec ses mutes et son tempo, et une boucle. Le morceau reste dans la machine jusqu'à l'extinction" },
     { en: "Proven in the emulator on the OS's own code, with the whole OS; not yet tried on a Model:Cycles. Nothing else in the OS changes",
       fr: "Prouvé en émulation sur le code même de l'OS, avec tout l'OS ; pas encore essayé sur un Model:Cycles. Rien d'autre ne change dans l'OS" },
+    { en: "Song mode plays CC lanes too: up to 8, each on a track or the FX channel, ramping from a start to an end value across each section. In the arranger, + CC lane adds one; click a lane's name to choose its track and parameter, × removes it",
+      fr: "Le mode morceau joue aussi les lignes de CC : jusqu'à 8, chacune sur une piste ou le canal FX, en rampe d'une valeur de début à une valeur de fin sur chaque section. Dans l'arrangeur, + CC lane en ajoute une ; cliquez sur son nom pour choisir sa piste et son paramètre, × la supprime" },
   ] },
   { version: "2.0", date: "2026-10-18", changes: [
     { en: "One firmware now, the Modded Cycles OS: nothing to tick any more, everyone runs the same OS. Projects, tips and bug reports now mean the same thing for everyone. The flasher's first tab lists what the OS contains, and Details on a row opens its full description and its page in the guide",
