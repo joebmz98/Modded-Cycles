@@ -119,3 +119,37 @@ PASS the armed flag is consumed by each swap
 3. `[À FAIRE]` Écrire le moteur en C (`tools/machines/song/`), le générateur `gen_song.py`, le tweak `song-mode`.
 4. `[À FAIRE]` Le prouver en émulation : écriture SysEx → table ; tick → appels de `0x40055cd6` aux bons pas.
 5. `[À FAIRE]` Essai sur la machine, avec une interface USB-MIDI sous la main pour la récupération (RECOVERY.md).
+
+## 8. Points d'accroche du mode morceau (14/11/2026, suite)
+
+### 8.1 Recevoir une SysEx : une entrée à nous dans le routeur
+
+- `[FAIT]` Le routeur `0x40081300..0x400813c0` lit `F0 00 20 3C p s c …` : `p` ≤ 17 indexe la table `0x40148d08`
+  (données de l'image, donc modifiables par un tweak). Une entrée est une structure `{octet id = p, octet sous-id = s,
+  table de gestionnaires (+4), min (+8), max (+12), base (+16)}` ; si `s` correspond et `min ≤ c ≤ max`, le routeur
+  saute à `table[c - base]` avec ses arguments (contexte, message depuis `F0`, longueur avec `F7`, port).
+- `[FAIT]` Entrées prises sur le Cycles : `4` (`0x4011290c`), `0x10` (`0x401128e4`, protocole d'Elektron Transfer :
+  128 gestionnaires `0x40080880` qui renvoient tout au serveur RPC C++ `0x40085702` → `0x40084ade`, seulement pour les
+  ports 2 et 4), `0x11` (`0x40112920`, mise à jour d'OS). Les autres `p` ≤ 17 sont libres.
+- `[HYP]` Port 2 = USB (`0x40080822` n'envoie sa réponse qu'au port 2, par l'USB).
+- Choix : **une entrée à nous** pour un `p` libre, avec `c` = numéro de commande et `table[c]` = nos gestionnaires.
+  Plus simple que d'ajouter des commandes au serveur RPC de Transfer (objets C++, `std::function`), et indépendant
+  de lui. Le protocole devient `F0 00 20 3C p 00 cmd corps… F7`, corps en 7 bits ; `SONG-PROTOCOL.md` et
+  l'application suivront.
+- `[FAIT]` **Répondre** : `0x40003396(n, octets)` envoie `n` octets bruts sur le MIDI USB (anneau de 4 031 o,
+  appelé par `0x40080842`, `0x40080878`, `0x40082706`, `0x4008f2b4`).
+- Le gestionnaire tourne dans la tâche MIDI : il ne fait que copier la table du morceau et lever des drapeaux ; tout
+  appel au séquenceur (`0x40055cd6`) reste dans la tâche d'interface.
+
+### 8.2 Le tick à 30 Hz
+
+- `[FAIT]` Message 5 de la tâche d'interface : `0x400081e4 jsr 0x40082464` (pris par step-rec, `sr_tick`),
+  **`0x400081ea jsr 0x400d0b12`** (libre dans `REGISTRY.md`), `0x400081f2 jsr 0x40090f48` (pris par level-pan-values).
+- Choix : détourner `0x400081ea` vers notre `song_tick`, qui appelle `0x400d0b12` et rend son `d0` (lu ensuite par
+  `0x400081f0`). Aucun octet partagé avec step-rec ni level-pan.
+
+### 8.3 Reste à trouver
+
+- `[À FAIRE]` La fonction qui mute une piste (le chemin du CC 94 : gestionnaire CC `0x40080ac4`, probablement un
+  message d'interface comme pour le PC) et celle qui pose le tempo (`0x40058bb4`, notes/38, à confirmer en appel).
+- `[À FAIRE]` La place : un masque libre de `REGISTRY.md` pour le code ; la table du morceau (≈ 800 o) en SDRAM libre.
