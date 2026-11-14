@@ -1,7 +1,7 @@
 # Song mode SysEx protocol, v1 (proposal for the Modded Cycles fork)
 
-Cycles Arranger (`arranger/index.html`) already speaks this protocol. Its "Mock device" target implements the device side in
-JavaScript (`class MockDevice` in `arranger/index.html`), so the firmware can be checked against it byte for byte.
+Cycles Arranger (`docs/arranger/index.html`) already speaks this protocol. Its "Mock device" target implements the device side in
+JavaScript (`class MockDevice` in `docs/arranger/index.html`), so the firmware can be checked against it byte for byte.
 
 ## Framing
 

@@ -1,7 +1,7 @@
 # 74 — Arranger : Program Change, chaînes de patterns et un mode morceau
 
 Rédigé le 14/11/2026 pour le fork Arranger de Joe (`joebmz98/Modded-Cycles`) : un mode morceau piloté par
-l'application web Cycles Arranger (`arranger/`, protocole SysEx dans `arranger/SONG-PROTOCOL.md`). Question : où
+l'application web Cycles Arranger (`docs/arranger/`, protocole SysEx dans `docs/arranger/SONG-PROTOCOL.md`). Question : où
 l'OS change-t-il de pattern, et sur quoi un mode morceau peut-il s'accrocher ? Adresses : VA de l'OS 1.13.
 
 ## Réponse courte
@@ -83,7 +83,7 @@ Une écriture pendant le dernier pas arrive trop tard pour ce retour au début.
 
 - **SysEx entrant** : un gestionnaire sur une commande libre du routeur SysEx (`0x40081348`, table `0x40148d08`,
   notes/15) range la table du morceau (lignes : pattern, répétitions, masque de mutes, tempo ;
-  `arranger/SONG-PROTOCOL.md`) dans de la SDRAM libre.
+  `docs/arranger/SONG-PROTOCOL.md`) dans de la SDRAM libre.
 - **Moteur** dans le tick à 30 Hz de la tâche d'interface (`0x400081e4`, comme le step record, notes/73) :
   - un début de pattern se voit à `0x40a78840` qui redescend (retour au début), ou à `0x40a7887c` qui change ;
   - à chaque début : décompte des répétitions de la ligne ; à la dernière, écrit le pattern de la ligne suivante par
